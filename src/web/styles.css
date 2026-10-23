@@ -1684,3 +1684,17 @@ a:hover {
   width: 46px;
   text-align: center;
 }
+/* The STATS columns inherit everything from .stats — panel surface, border,
+   radius, shadow, scrollbars, the animation — and own only their padding, so a
+   future change to one column cannot silently move the other.
+
+   Three values are top | left-right | bottom, and two are top-bottom |
+   left-right; the right column keeps the same 18 px sides and 14 px bottom as
+   .stats and changes the top alone. */
+.app[data-view='stats'] .stats-left {
+  padding: 18px 18px 14px;
+}
+
+.app[data-view='stats'] .stats-right {
+  padding: 2px 18px 14px;
+}
