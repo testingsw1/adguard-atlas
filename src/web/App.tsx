@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
-import type { ClientConfig } from '../shared/types';
+import type { AtlasView, ClientConfig } from '../shared/types';
 import { Footer, KioskCaption, Notices, problems, TopBar } from './components/Chrome';
 import { Icon } from './components/bits';
-import { SidePanel, StatsPanel } from './components/Panels';
+import { SidePanel, StatsFeedPanel, StatsLeftPanel, StatsPanel, StatsTopPanel } from './components/Panels';
 import { remember, type UrlOptions } from './config';
 import type { Padding } from './map/AtlasMap';
 import { MapView } from './MapView';
@@ -41,6 +41,8 @@ export function App({ store, config, initialUrl }: Props) {
   const wide = useMedia(WIDE);
   const [kiosk, setKiosk] = useState(initialUrl.kiosk);
   const [tab, setTab] = useState<'feed' | 'stats'>('feed');
+  // `VIEW` sets the opening layout; the brand button switches it for this tab only.
+  const [view, setView] = useState<AtlasView>(initialUrl.view ?? config.view);
   const bare = kiosk && initialUrl.bare;
 
   useLayoutEffect(() => {
@@ -62,6 +64,10 @@ export function App({ store, config, initialUrl }: Props) {
     if (next) url.searchParams.set('kiosk', '');
     else url.searchParams.delete('kiosk');
     window.history.replaceState(null, '', url.pathname + url.search.replace(/=(?=&|$)/g, '') + url.hash);
+  }, []);
+
+  const toggleView = useCallback(() => {
+    setView((v) => (v === 'map' ? 'stats' : 'map'));
   }, []);
 
   useEffect(() => {
@@ -88,6 +94,9 @@ export function App({ store, config, initialUrl }: Props) {
         case 'k':
           toggleKiosk(!kiosk);
           break;
+        case 'v':
+          toggleView();
+          break;
         case 'escape':
           if (s.selection) store.select(null);
           else if (kiosk) toggleKiosk(false);
@@ -97,7 +106,7 @@ export function App({ store, config, initialUrl }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [store, config.privacyForced, kiosk, toggleKiosk]);
+  }, [store, config.privacyForced, kiosk, toggleKiosk, toggleView]);
 
   // On a narrow screen a selection is only visible on the feed tab.
   const hasDetail = snap.view.detail !== null;
@@ -109,9 +118,11 @@ export function App({ store, config, initialUrl }: Props) {
   const labels = kiosk ? 12 : wide ? 8 : 4;
   const panel = { store, snap, privacyForced: config.privacyForced };
   const issues = problems(snap, config);
+  // A wall display keeps the map: the caption and legend only make sense over it.
+  const shown: AtlasView = kiosk ? 'map' : view;
 
   return (
-    <div className="app" data-kiosk={kiosk} data-tab={tab} data-mode={config.mode}>
+    <div className="app" data-kiosk={kiosk} data-tab={tab} data-mode={config.mode} data-view={shown}>
       <MapView
         store={store}
         config={config}
@@ -133,7 +144,14 @@ export function App({ store, config, initialUrl }: Props) {
         </>
       ) : (
         <>
-          <TopBar store={store} snap={snap} config={config} onKiosk={() => toggleKiosk(true)} />
+          <TopBar
+            store={store}
+            snap={snap}
+            config={config}
+            view={view}
+            onToggleView={toggleView}
+            onKiosk={() => toggleKiosk(true)}
+          />
           <nav className="tabs" aria-label="Panels">
             <button type="button" aria-pressed={tab === 'feed'} onClick={() => setTab('feed')}>
               Feed
@@ -142,8 +160,18 @@ export function App({ store, config, initialUrl }: Props) {
               Counters
             </button>
           </nav>
-          <StatsPanel {...panel} />
-          <SidePanel {...panel} />
+          {view === 'stats' ? (
+            <>
+              <StatsLeftPanel {...panel} />
+              <StatsFeedPanel {...panel} />
+              <StatsTopPanel {...panel} />
+            </>
+          ) : (
+            <>
+              <StatsPanel {...panel} />
+              <SidePanel {...panel} />
+            </>
+          )}
           <Footer store={store} snap={snap} config={config} />
         </>
       )}
