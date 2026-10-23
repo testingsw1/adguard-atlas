@@ -6,13 +6,13 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "npm run build:web && npm run build:server",
     "build:web": "vite build",
     "build:demo": "vite build --mode demo",
-    "build:server": "esbuild src/server/main.ts --bundle --platform=node --target=node22 --format=cjs --legal-comments=none --outfile=dist/server/main.cjs",
+    "build:server": "esbuild src/server/main.ts --bundle --platform=node --target=node22 --format=cjs --external:node:sqlite --legal-comments=none --outfile=dist/server/main.cjs",
     "start": "node dist/server/main.cjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
