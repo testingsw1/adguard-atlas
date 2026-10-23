@@ -3,8 +3,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { placeKey, type AtlasEvent } from '../shared/types';
 
 /**
- * The archive. Every query AdGuard Home ever hands us lands here and stays here;
- * only the live arc buffer is ever thrown away.
+ * The archive. Every query AdGuard Home hands us lands here and stays here,
+ * until the row cap (or KEEP_DAYS) rolls the oldest ones off.
  *
  * Uses `node:sqlite` (built into Node >= 22.13, and into the image), so the
  * container needs no native module and no build toolchain at runtime.
@@ -65,22 +65,39 @@ const COLUMNS = [
 
 export interface DbOptions {
   path: string;
-  /** SQLite page cache, MB. */
+  /** SQLite page cache in MB. Explicit, because the container limit is what matters. */
   cacheMb?: number;
+  /** Keep at most this many rows; 0 means no row cap. */
+  maxRows?: number;
+  /** Called after the cap removed rows, for the log. */
+  onTrim?: (removed: number) => void;
 }
 
 export class Db {
   readonly handle: DatabaseSync;
   private readonly insert: ReturnType<DatabaseSync['prepare']>;
+  private readonly maxRows: number;
+  /** Trim in batches rather than on every insert: the scan is not free. */
+  private readonly trimEvery: number;
+  private readonly onTrim?: (removed: number) => void;
+  private sinceTrim = 0;
+  /** `at: 0` forces a recount; it is invalidated by every write and by each trim. */
   private counted = { at: 0, rows: 0 };
 
   constructor(options: DbOptions) {
+    const cacheMb = Math.min(256, Math.max(8, options.cacheMb ?? 64));
+    this.maxRows = Math.max(0, options.maxRows ?? 1_000_000);
+    // A tenth of the cap, at least 5000 rows: during a large backfill this keeps
+    // the overshoot small without scanning the rowid index every page.
+    this.trimEvery = Math.max(5_000, Math.floor(this.maxRows / 10));
+    this.onTrim = options.onTrim;
+
     this.handle = new DatabaseSync(options.path);
     this.handle.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA synchronous = NORMAL;
       PRAGMA temp_store = MEMORY;
-      PRAGMA cache_size = -${(options.cacheMb ?? 16) * 1000};
+      PRAGMA cache_size = -${cacheMb * 1000};
       PRAGMA busy_timeout = 5000;
     `);
     this.handle.exec(SCHEMA);
@@ -128,7 +145,44 @@ export class Db {
       }
       throw err;
     }
+
+    if (fresh.length > 0) {
+      this.counted.at = 0;
+      this.sinceTrim += fresh.length;
+      if (this.maxRows > 0 && this.sinceTrim >= this.trimEvery) {
+        this.sinceTrim = 0;
+        const removed = this.trimTo(this.maxRows);
+        if (removed > 0) this.onTrim?.(removed);
+      }
+    }
     return fresh;
+  }
+
+  /**
+   * Deletes the oldest rows until at most `maxRows` remain.
+   *
+   * `id` is the rowid, so the newest rows are the highest ids and one comparison
+   * finds the cut. Freed pages are reused by later inserts, which is why the file
+   * settles near the size of the cap instead of growing forever; no VACUUM needed.
+   */
+  trimTo(maxRows: number): number {
+    if (maxRows <= 0) return 0;
+    const edge = this.handle
+      .prepare('SELECT id FROM queries ORDER BY id DESC LIMIT 1 OFFSET ?')
+      .get(maxRows) as unknown as { id: number } | undefined;
+    if (!edge) return 0;
+    const result = this.handle.prepare('DELETE FROM queries WHERE id <= ?').run(edge.id);
+    const removed = Number(result.changes);
+    if (removed > 0) {
+      this.counted.at = 0;
+      // Let the planner refresh its statistics after a large delete.
+      try {
+        this.handle.exec('PRAGMA optimize');
+      } catch {
+        // advisory only
+      }
+    }
+    return removed;
   }
 
   meta(key: string): string | null {
@@ -162,14 +216,17 @@ export class Db {
     }
   }
 
-  /** Retention: only used when KEEP_DAYS is set, so "unlimited" really is unlimited. */
+  /** Retention by age, only used when KEEP_DAYS is set. */
   prune(before: number): number {
     const result = this.handle.prepare('DELETE FROM queries WHERE ts < ?').run(before);
-    return Number(result.changes);
+    const removed = Number(result.changes);
+    if (removed > 0) this.counted.at = 0;
+    return removed;
   }
 
   close(): void {
     try {
+      this.handle.exec('PRAGMA optimize');
       this.handle.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     } catch {
       // nothing left to checkpoint
