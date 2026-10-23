@@ -30,8 +30,8 @@ export interface Config {
   ignoreDomains: string[];
   geoipDb: string;
   dbPath: string;
-  /** A stylesheet served from /data and linked after the built one; edit it without a rebuild. */
-  cssFile: string;
+  /** Where the editable copy of the built stylesheet lives; null disables the override. */
+  stylesPath: string | null;
   /** 0 keeps every query forever. */
   keepDays: number;
   backfill: boolean;
@@ -47,7 +47,7 @@ type ReadFile = (path: string) => string;
 
 export const DEFAULT_GEOIP_DB = '/usr/share/geoip/dbip-city-lite.mmdb';
 export const DEFAULT_DB_PATH = '/data/atlas.db';
-export const DEFAULT_CSS_PATH = '/data/custom.css';
+export const DEFAULT_STYLES_PATH = '/data/atlas.css';
 
 function bool(env: Env, key: string, fallback = false): boolean {
   const raw = env[key]?.trim().toLowerCase();
@@ -82,6 +82,17 @@ function list(env: Env, key: string): string[] {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+}
+
+/**
+ * `ATLAS_STYLES` may be a path, or "off" to serve only the stylesheet compiled
+ * into the image. Unset means the default path inside the volume.
+ */
+function stylesPath(env: Env): string | null {
+  const raw = env.ATLAS_STYLES?.trim();
+  if (raw === undefined || raw === '') return DEFAULT_STYLES_PATH;
+  if (['off', 'none', 'false', '0', 'no'].includes(raw.toLowerCase())) return null;
+  return raw;
 }
 
 function secret(env: Env, key: string, readFile: ReadFile): string | undefined {
@@ -177,7 +188,7 @@ export function loadConfig(
     ignoreDomains: list(env, 'IGNORE_DOMAINS').map((d) => d.replace(/^\\?\./, '').replace(/\.$/, '')),
     geoipDb: env.GEOIP_DB?.trim() || DEFAULT_GEOIP_DB,
     dbPath: env.ATLAS_DB?.trim() || DEFAULT_DB_PATH,
-    cssFile: env.ATLAS_CSS?.trim() || DEFAULT_CSS_PATH,
+    stylesPath: stylesPath(env),
     keepDays: int(env, 'KEEP_DAYS', 0, 0, 3650),
     backfill: bool(env, 'BACKFILL', true),
     backfillPages: int(env, 'BACKFILL_MAX_PAGES', 0, 0, 1_000_000),
