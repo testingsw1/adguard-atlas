@@ -10,7 +10,20 @@ import {
   type QueryClass,
 } from '../../shared/types';
 import { filtersActive, placeKey, type AtlasStore, type Row, type Snapshot } from '../store';
-import { CLASS_HINT, CLASS_LABEL, ClassGlyph, Domain, fmt, fmtCompact, fmtShare, fmtTime, Icon, whereOf } from './bits';
+import {
+  CLASS_HINT,
+  CLASS_LABEL,
+  ClassGlyph,
+  Domain,
+  fmt,
+  fmtClock,
+  fmtCompact,
+  fmtDate,
+  fmtShare,
+  fmtTime,
+  Icon,
+  whereOf,
+} from './bits';
 import { Legend } from './Chrome';
 
 interface PanelProps {
@@ -269,7 +282,15 @@ function FeedRow({ e, store, snap, forced }: { e: AtlasEvent; store: AtlasStore;
           <span className="row-where">{whereOf(e)}</span>
         </span>
       </span>
-      <time className="row-time">{fmtTime(e.t)}</time>
+      {/*
+        Date and clock are two elements, so the clock can carry its own colour.
+        `title` keeps the full stamp on hover and `dateTime` keeps the element a
+        real <time>, which is what a screen reader announces.
+      */}
+      <time className="row-time" dateTime={new Date(e.t).toISOString()} title={fmtTime(e.t)}>
+        <span className="row-date">{fmtDate(e.t)}</span>
+        <span className="row-clock">{fmtClock(e.t)}</span>
+      </time>
     </>
   );
   const dest = e.dest;
