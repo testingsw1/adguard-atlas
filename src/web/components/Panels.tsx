@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import {
   DEFAULT_RANGE,
   QUERY_CLASSES,
@@ -152,11 +152,22 @@ function TopList({
   );
 }
 
-/** Countries, domains and devices. Left in the map view, right in the stats view. */
-function TopLists({ store, snap, privacyForced }: PanelProps) {
+/** The three top lists, in whatever order the layout asks for. */
+type TopSection = 'countries' | 'domains' | 'devices';
+
+const MAP_ORDER: readonly TopSection[] = ['countries', 'domains', 'devices'];
+const STATS_ORDER: readonly TopSection[] = ['devices', 'domains', 'countries'];
+
+function TopLists({
+  store,
+  snap,
+  privacyForced,
+  order = MAP_ORDER,
+}: PanelProps & { order?: readonly TopSection[] }) {
   const { view, filters } = snap;
-  return (
-    <>
+
+  const sections: Record<TopSection, ReactNode> = {
+    countries: (
       <TopList
         title={`Top countries${view.countries > 0 ? ` · ${view.countries}` : ''}`}
         rows={view.topCountries}
@@ -169,6 +180,8 @@ function TopLists({ store, snap, privacyForced }: PanelProps) {
         )}
         onPick={(row) => store.select({ kind: 'country', cc: row.cc ?? '', name: row.label })}
       />
+    ),
+    domains: (
       <TopList
         title="Top domains"
         rows={view.topDomains}
@@ -179,6 +192,8 @@ function TopLists({ store, snap, privacyForced }: PanelProps) {
           if (!snap.privacy && !row.key.startsWith('~')) store.setFilters({ text: row.key });
         }}
       />
+    ),
+    devices: (
       <TopList
         title="Top devices"
         rows={view.topDevices}
@@ -186,6 +201,14 @@ function TopLists({ store, snap, privacyForced }: PanelProps) {
         render={(row) => deviceLabel(store, row.label, snap, privacyForced)}
         onPick={(row) => store.setFilters({ device: filters.device === row.key ? null : row.key })}
       />
+    ),
+  };
+
+  return (
+    <>
+      {order.map((section) => (
+        <Fragment key={section}>{sections[section]}</Fragment>
+      ))}
     </>
   );
 }
@@ -418,12 +441,12 @@ function DetailView({ store, snap, privacyForced }: PanelProps) {
 
 // --- the two layouts ----------------------------------------------------------
 
-/** MAP: counters on the left, filters and feed on the right. Unchanged. */
+/** MAP: counters on the left, filters and feed on the right. Countries first. */
 export function StatsPanel(props: PanelProps) {
   return (
     <aside className="panel stats" aria-label="Counters">
       <Counters {...props} />
-      <TopLists {...props} />
+      <TopLists {...props} order={MAP_ORDER} />
     </aside>
   );
 }
@@ -461,11 +484,11 @@ export function StatsFeedPanel(props: PanelProps) {
   );
 }
 
-/** STATS, right column: what used to sit under the counters. */
+/** STATS, right column: devices first, because a device is what you act on. */
 export function StatsTopPanel(props: PanelProps) {
   return (
-    <aside className="panel stats col-right" aria-label="Top countries, domains and devices">
-      <TopLists {...props} />
+    <aside className="panel stats col-right" aria-label="Top devices, domains and countries">
+      <TopLists {...props} order={STATS_ORDER} />
     </aside>
   );
 }
