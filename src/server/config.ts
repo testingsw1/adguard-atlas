@@ -19,11 +19,20 @@ export interface Config {
   instances: InstanceConfig[];
   home: { lat: number; lon: number; label: string };
   pollIntervalMs: number;
+  /** Only the demo generator uses this now; live counters follow the time range. */
   windowMinutes: number;
+  /** How much live traffic stays in RAM for the arcs, whatever the range. */
+  liveBufferMinutes: number;
   privacyMode: boolean;
   ignoreClients: string[];
   ignoreDomains: string[];
   geoipDb: string;
+  dbPath: string;
+  /** 0 keeps every query forever. */
+  keepDays: number;
+  backfill: boolean;
+  backfillPages: number;
+  backfillPauseMs: number;
   logLevel: LogLevel;
 }
 
@@ -33,6 +42,7 @@ type Env = Record<string, string | undefined>;
 type ReadFile = (path: string) => string;
 
 export const DEFAULT_GEOIP_DB = '/usr/share/geoip/dbip-city-lite.mmdb';
+export const DEFAULT_DB_PATH = '/data/atlas.db';
 
 function bool(env: Env, key: string, fallback = false): boolean {
   const raw = env[key]?.trim().toLowerCase();
@@ -153,10 +163,16 @@ export function loadConfig(
     },
     pollIntervalMs: int(env, 'POLL_INTERVAL_MS', 2000, 250, 600_000),
     windowMinutes: int(env, 'WINDOW_MINUTES', 15, 1, 240),
+    liveBufferMinutes: int(env, 'LIVE_BUFFER_MINUTES', 5, 1, 120),
     privacyMode: bool(env, 'PRIVACY_MODE'),
     ignoreClients: list(env, 'IGNORE_CLIENTS'),
-    ignoreDomains: list(env, 'IGNORE_DOMAINS').map((d) => d.replace(/^\*?\./, '').replace(/\.$/, '')),
+    ignoreDomains: list(env, 'IGNORE_DOMAINS').map((d) => d.replace(/^\\?\./, '').replace(/\.$/, '')),
     geoipDb: env.GEOIP_DB?.trim() || DEFAULT_GEOIP_DB,
+    dbPath: env.ATLAS_DB?.trim() || DEFAULT_DB_PATH,
+    keepDays: int(env, 'KEEP_DAYS', 0, 0, 3650),
+    backfill: bool(env, 'BACKFILL', true),
+    backfillPages: int(env, 'BACKFILL_MAX_PAGES', 0, 0, 1_000_000),
+    backfillPauseMs: int(env, 'BACKFILL_PAUSE_MS', 250, 0, 60_000),
     logLevel: level,
   };
 
