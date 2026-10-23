@@ -1,17 +1,30 @@
 import {
+  BUCKETS,
+  DEFAULT_RANGE,
   QUERY_CLASSES,
+  placeKey,
+  parseRange,
   type AtlasEvent,
-  type Destination,
+  type Detail,
+  type Place,
   type QueryClass,
+  type Row,
   type ServerStatus,
+  type StatsResponse,
+  type TimeRange,
 } from '../shared/types';
 import type { ConnectionState } from './sources/types';
+
+export { BUCKETS, placeKey };
+export type { Detail, Place, Row };
 
 export interface Filters {
   device: string | null;
   instance: string | null;
   classes: Record<QueryClass, boolean>;
   text: string;
+  /** How far back the counters look. Ignored by the demo, which has only 15 minutes. */
+  range: TimeRange;
 }
 
 export type Selection =
@@ -19,43 +32,13 @@ export type Selection =
   | { kind: 'country'; cc: string; name: string; featureId?: string }
   | null;
 
-export interface Place {
-  key: string;
-  lat: number;
-  lon: number;
-  city?: string;
-  country?: string;
-  cc?: string;
-  count: number;
-  last: number;
-}
-
-export interface Row {
-  key: string;
-  label: string;
-  count: number;
-  blocked: number;
-  cc?: string;
-}
-
-export interface Detail {
-  title: string;
-  subtitle: string;
-  total: number;
-  domains: Row[];
-  devices: Row[];
-  cities: Row[];
-}
-
-export const BUCKETS = 60;
-
 export interface View {
   total: number;
   byClass: Record<QueryClass, number>;
   /** Share of blocked queries among everything that passes the non-class filters. */
   blockedShare: number;
   perMinute: number;
-  /** Histogram over the window: [allowed, blocked, other] per bucket. */
+  /** Histogram over the range: [allowed, blocked, other] per bucket. */
   buckets: [number, number, number][];
   topCountries: Row[];
   topDomains: Row[];
@@ -66,6 +49,9 @@ export interface View {
   instances: string[];
   places: Place[];
   detail: Detail | null;
+  /** Which range the numbers describe, and where it starts, for the axis. */
+  range: TimeRange;
+  since: number;
 }
 
 export type Theme = 'dark' | 'light';
@@ -86,16 +72,13 @@ export interface Snapshot {
 export const FEED_SIZE = 70;
 const MAX_EVENTS = 40_000;
 
-export function placeKey(dest: Destination): string {
-  return `${dest.lat.toFixed(2)},${dest.lon.toFixed(2)}`;
-}
-
 export function defaultFilters(): Filters {
   return {
     device: null,
     instance: null,
     classes: { allowed: true, blocked: true, local: true, noanswer: true },
     text: '',
+    range: DEFAULT_RANGE,
   };
 }
 
@@ -104,6 +87,7 @@ export function filtersActive(f: Filters): number {
     (f.device ? 1 : 0) +
     (f.instance ? 1 : 0) +
     (f.text.trim() ? 1 : 0) +
+    (f.range !== DEFAULT_RANGE ? 1 : 0) +
     QUERY_CLASSES.filter((c) => !f.classes[c]).length
   );
 }
@@ -128,9 +112,15 @@ function bump(map: Map<string, Row>, key: string, label: string, e: AtlasEvent, 
 }
 
 /**
- * The browser's copy of the window and everything derived from it. Events arrive
- * much faster than React should render, so the store collects them and recomputes
- * the view on a timer; the map listens to live events directly.
+ * Two sources, on purpose:
+ *
+ *  - RAM holds the last few minutes, and only those, to feed the arcs and the feed
+ *    as they arrive;
+ *  - the server's SQLite archive, over `/api/stats`, answers every counter and the
+ *    map's places for whatever range is selected.
+ *
+ * In the demo there is no archive, so `compute()` alone produces the view, exactly
+ * as before.
  */
 export class AtlasStore {
   private events: AtlasEvent[] = [];
@@ -143,10 +133,14 @@ export class AtlasStore {
   private aliases = new Map<string, string>();
   private snapshot: Snapshot;
 
-  constructor(
-    private readonly windowMs: number,
-    initial: { privacy?: boolean; theme?: Theme } = {},
-  ) {
+  private windowMs: number;
+  private stats: StatsResponse | null = null;
+  private statsKey = '';
+  private statsEnabled = false;
+  private statsTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(windowMs: number, initial: { privacy?: boolean; theme?: Theme } = {}) {
+    this.windowMs = windowMs;
     this.snapshot = {
       view: this.compute(defaultFilters(), null),
       filters: defaultFilters(),
@@ -199,6 +193,62 @@ export class AtlasStore {
     this.set({ view: this.compute(this.snapshot.filters, this.snapshot.selection) });
   }
 
+  // --- archive-backed counters --------------------------------------------
+
+  /** Turns on `/api/stats`: every counter then comes from SQLite, not from RAM. */
+  enableServerStats(intervalMs = 2000): () => void {
+    this.statsEnabled = true;
+    this.queueStats(0);
+    const timer = setInterval(() => void this.refreshStats(), intervalMs);
+    return () => clearInterval(timer);
+  }
+
+  private queueStats(delay = 150): void {
+    if (!this.statsEnabled) return;
+    if (this.statsTimer) clearTimeout(this.statsTimer);
+    this.statsTimer = setTimeout(() => {
+      this.statsTimer = null;
+      void this.refreshStats();
+    }, delay);
+  }
+
+  private keyOf(f: Filters, s: Selection): string {
+    return JSON.stringify([f.range, f.device, f.instance, f.text.trim().toLowerCase(), f.classes, s]);
+  }
+
+  async refreshStats(): Promise<void> {
+    if (!this.statsEnabled) return;
+    const filters = this.snapshot.filters;
+    const selection = this.snapshot.selection;
+    const key = this.keyOf(filters, selection);
+
+    const params = new URLSearchParams({ range: filters.range });
+    if (filters.device) params.set('device', filters.device);
+    if (filters.instance) params.set('instance', filters.instance);
+    const text = filters.text.trim();
+    if (text) params.set('text', text);
+    const hidden = QUERY_CLASSES.filter((c) => !filters.classes[c]);
+    if (hidden.length > 0) params.set('hidden', hidden.join(','));
+    if (selection?.kind === 'country') {
+      params.set('country', selection.cc);
+      params.set('countryName', selection.name);
+    }
+    if (selection?.kind === 'place') params.set('place', selection.key);
+
+    try {
+      const res = await fetch(`api/stats?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      this.stats = (await res.json()) as StatsResponse;
+      this.statsKey = key;
+      this.set({ view: this.compute(this.snapshot.filters, this.snapshot.selection) });
+    } catch {
+      // the next poll tries again; the last numbers stay on screen
+    }
+  }
+
   // --- data ---------------------------------------------------------------
 
   now(): number {
@@ -210,6 +260,7 @@ export class AtlasStore {
     this.events = events.slice();
     this.prune();
     this.set({ ready: true, view: this.compute(this.snapshot.filters, this.snapshot.selection) });
+    this.queueStats(0);
   }
 
   ingest(events: AtlasEvent[]): void {
@@ -223,6 +274,7 @@ export class AtlasStore {
     this.dirty = true;
   }
 
+  /** RAM keeps only what the arcs need; the archive keeps everything. */
   private prune(): void {
     const cutoff = this.now() - this.windowMs;
     let drop = 0;
@@ -236,6 +288,11 @@ export class AtlasStore {
   setFilters(patch: Partial<Filters>): void {
     const filters = { ...this.snapshot.filters, ...patch };
     this.set({ filters, view: this.compute(filters, this.snapshot.selection) });
+    this.queueStats();
+  }
+
+  setRange(range: TimeRange): void {
+    this.setFilters({ range: parseRange(range) });
   }
 
   toggleClass(cls: QueryClass): void {
@@ -250,6 +307,7 @@ export class AtlasStore {
 
   select(selection: Selection): void {
     this.set({ selection, view: this.compute(this.snapshot.filters, selection) });
+    this.queueStats();
   }
 
   setPaused(paused: boolean): void {
@@ -300,6 +358,30 @@ export class AtlasStore {
 
   matches(e: AtlasEvent, f: Filters = this.snapshot.filters): boolean {
     return f.classes[e.cls] && this.matchesBase(e, f, textWords(f.text));
+  }
+
+  /** Overlays the SQLite answer when it describes exactly the current filters. */
+  private withStats(view: View, filters: Filters, selection: Selection): View {
+    const s = this.stats;
+    if (!s || this.statsKey !== this.keyOf(filters, selection)) return view;
+    return {
+      ...view,
+      total: s.total,
+      byClass: s.byClass,
+      blockedShare: s.blockedShare,
+      perMinute: s.perMinute,
+      buckets: s.buckets,
+      topCountries: s.topCountries,
+      topDomains: s.topDomains,
+      topDevices: s.topDevices,
+      countries: s.countries,
+      devices: s.devices,
+      instances: s.instances,
+      places: s.places,
+      detail: s.detail,
+      range: s.range,
+      since: s.since,
+    };
   }
 
   private compute(filters: Filters, selection: Selection): View {
@@ -395,7 +477,7 @@ export class AtlasStore {
     }
 
     const seen = byClass.allowed + byClass.blocked + byClass.local + byClass.noanswer;
-    return {
+    const view: View = {
       total,
       byClass,
       blockedShare: seen > 0 ? byClass.blocked / seen : 0,
@@ -410,6 +492,9 @@ export class AtlasStore {
       instances: [...allInstances].sort((a, b) => a.localeCompare(b)),
       places: [...places.values()].sort((a, b) => b.count - a.count),
       detail,
+      range: filters.range,
+      since: start,
     };
+    return this.withStats(view, filters, selection);
   }
 }
