@@ -40,6 +40,10 @@ CREATE INDEX IF NOT EXISTS ix_ts_domain   ON queries(ts, domain, cls);
 CREATE INDEX IF NOT EXISTS ix_ts_cc       ON queries(ts, dest_cc, cls);
 CREATE INDEX IF NOT EXISTS ix_ts_place    ON queries(ts, dest_key);
 
+-- The free-text filter is a LIKE scan, which no index can seek into; this one at
+-- least covers it, so the scan reads index pages and never the table itself.
+CREATE INDEX IF NOT EXISTS ix_ts_text     ON queries(ts, domain, client);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
