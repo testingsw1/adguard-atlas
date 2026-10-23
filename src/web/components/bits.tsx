@@ -17,11 +17,13 @@ export const CLASS_HINT: Record<QueryClass, string> = {
 
 const number = new Intl.NumberFormat('en-US');
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
-const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+/** `dd.mm` and `hh:mm` are formatted separately, so the separator is a dot and not a locale's slash. */
+const dayMonth = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit' });
+const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 export const fmt = (n: number) => number.format(n);
 export const fmtCompact = (n: number) => (n < 10_000 ? number.format(n) : compact.format(n));
-export const fmtTime = (t: number) => clock.format(t);
+export const fmtTime = (t: number) => `${dayMonth.format(t).replace('/', '.')} ${clock.format(t)}`;
 export const fmtShare = (share: number) =>
   share === 0 ? '0%' : share < 0.1 ? `${(share * 100).toFixed(1)}%` : `${Math.round(share * 100)}%`;
 
