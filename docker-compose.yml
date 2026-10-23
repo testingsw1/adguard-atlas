@@ -35,6 +35,10 @@ services:
       HOME_LON: "21.01"
       # HOME_LABEL: "Home"
 
+      # Which layout the page opens in: MAP or STATS. Omit it for STATS.
+      # VIEW: "MAP"
+      # VIEW: "STATS"
+
       # --- the archive ---------------------------------------------------
       ATLAS_DB: "/data/atlas.db"
       # 0 keeps every query forever; set a number of days to prune old rows.
