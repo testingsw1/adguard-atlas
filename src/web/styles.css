@@ -1512,3 +1512,115 @@ a:hover {
     transition-duration: 0.01ms !important;
   }
 }
+/* --- MAP / STATS --------------------------------------------------------------
+   Appended to the end of the stylesheet, after every media query, so these rules
+   win over the map layout on equal specificity. Nothing above needs to change. */
+
+.brand {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.12s;
+}
+
+.brand:hover {
+  border-color: var(--line-strong);
+}
+
+.brand:active {
+  transform: translateY(1px);
+}
+
+/* The mode word is the only thing that is white; the name stays grey. */
+.brand-name b {
+  letter-spacing: 0.02em;
+}
+
+/* Stats view: the canvas is replaced by three columns of text. */
+.app[data-view='stats'] .map,
+.app[data-view='stats'] .vignette,
+.app[data-view='stats'] .foot .legend,
+.app[data-view='stats'] .tabs {
+  display: none;
+}
+
+.app[data-view='stats'] .notices {
+  top: 66px;
+}
+
+/* Filters sit in the panel's own padding, not on top of it. */
+.app[data-view='stats'] .col-left .filters {
+  padding: 0 0 14px;
+}
+
+/* The footer legend becomes a plain list inside the left column. */
+.legend-block .legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  white-space: normal;
+}
+
+@media (min-width: 1180px) {
+  .app[data-view='stats'] {
+    display: grid;
+    grid-template-columns: 392px minmax(0, 1fr) 368px;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 12px;
+    padding: 78px var(--gap) 64px;
+  }
+
+  .app[data-view='stats'] .col-left,
+  .app[data-view='stats'] .col-mid,
+  .app[data-view='stats'] .col-right {
+    position: relative;
+    inset: auto;
+    width: auto;
+    max-height: none;
+    min-height: 0;
+    animation: none;
+  }
+
+  .app[data-view='stats'] .col-left,
+  .app[data-view='stats'] .col-right {
+    overflow-y: auto;
+  }
+
+  .app[data-view='stats'] .col-mid {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 1179.98px) {
+  .app[data-view='stats'] {
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 70px 12px 84px;
+  }
+
+  .app[data-view='stats'] .col-left,
+  .app[data-view='stats'] .col-mid,
+  .app[data-view='stats'] .col-right {
+    position: relative;
+    inset: auto;
+    width: auto;
+    max-height: none;
+    min-height: 0;
+    margin-bottom: 12px;
+    animation: none;
+  }
+
+  .app[data-view='stats'] .col-mid {
+    display: flex;
+    flex-direction: column;
+    min-height: 420px;
+    max-height: 72dvh;
+  }
+}
