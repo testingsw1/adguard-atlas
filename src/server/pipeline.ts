@@ -41,6 +41,9 @@ export class Pipeline {
       const event: AtlasEvent = {
         id: (this.seq++).toString(36),
         t: Number(ns / 1_000_000n),
+        // Two queries inside one millisecond are otherwise indistinguishable to
+        // the unique index, and the log would silently lose one of them.
+        sub: Number(ns % 1_000_000n),
         instance,
         client: masker ? masker.device(device) : device,
         domain: masker ? masker.domain(domain) : domain,
