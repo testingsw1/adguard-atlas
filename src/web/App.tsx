@@ -52,6 +52,10 @@ export function App({ store, config, initialUrl }: Props) {
     if (!config.privacyForced) remember('privacy', snap.privacy ? 'on' : 'off');
   }, [snap.privacy, config.privacyForced]);
 
+  useEffect(() => {
+    remember('range', snap.filters.range);
+  }, [snap.filters.range]);
+
   const toggleKiosk = useCallback((next: boolean) => {
     setKiosk(next);
     const url = new URL(window.location.href);
@@ -103,7 +107,7 @@ export function App({ store, config, initialUrl }: Props) {
 
   const padding = bare ? PADDING.bare : kiosk ? PADDING.kiosk : wide ? PADDING.wide : PADDING.narrow;
   const labels = kiosk ? 12 : wide ? 8 : 4;
-  const panel = { store, snap, windowMinutes: config.windowMinutes, privacyForced: config.privacyForced };
+  const panel = { store, snap, privacyForced: config.privacyForced };
   const issues = problems(snap, config);
 
   return (
