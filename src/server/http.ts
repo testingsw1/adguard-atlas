@@ -2,7 +2,15 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import http from 'node:http';
 import { extname, join, posix } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import type { ClientConfig, SnapshotMessage } from '../shared/types';
+import {
+  QUERY_CLASSES,
+  parseRange,
+  type ClientConfig,
+  type QueryClass,
+  type SnapshotMessage,
+  type StatsQuery,
+  type StatsResponse,
+} from '../shared/types';
 
 /**
  * Section 7. Nothing is loaded from anywhere but this origin, and the page may only
@@ -104,6 +112,8 @@ export interface AppServerOptions {
   clientConfig: ClientConfig;
   /** Absent in demo mode: the browser generates its own events. */
   stream?: Stream;
+  /** Absent without an archive: the counters then come from the browser's RAM. */
+  stats?: (query: StatsQuery) => StatsResponse;
   health: () => Record<string, unknown>;
   maxStreamClients?: number;
 }
@@ -114,6 +124,22 @@ export interface AppServer {
   broadcast: (event: 'events' | 'status', data: unknown) => void;
   clientCount: () => number;
   close: () => Promise<void>;
+}
+
+function readStatsQuery(params: URLSearchParams): StatsQuery {
+  const query: StatsQuery = { range: parseRange(params.get('range')) };
+  if (params.has('device')) query.device = params.get('device');
+  if (params.has('instance')) query.instance = params.get('instance');
+  if (params.has('text')) query.text = params.get('text') ?? '';
+  if (params.has('country')) query.country = params.get('country') ?? '';
+  if (params.has('countryName')) query.countryName = params.get('countryName') ?? '';
+  if (params.has('place')) query.place = params.get('place') ?? '';
+  const hidden = (params.get('hidden') ?? '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c): c is QueryClass => (QUERY_CLASSES as readonly string[]).includes(c));
+  if (hidden.length > 0) query.hidden = hidden;
+  return query;
 }
 
 export function createAppServer(options: AppServerOptions): AppServer {
@@ -132,9 +158,16 @@ export function createAppServer(options: AppServerOptions): AppServer {
       res.end();
       return;
     }
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost');
+    } catch {
+      send(res, 400, 'Bad request');
+      return;
+    }
     let path: string;
     try {
-      path = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+      path = decodeURIComponent(url.pathname);
     } catch {
       send(res, 400, 'Bad request');
       return;
@@ -142,6 +175,21 @@ export function createAppServer(options: AppServerOptions): AppServer {
 
     if (path === '/healthz') {
       send(res, 200, JSON.stringify(options.health()), 'application/json; charset=utf-8');
+      return;
+    }
+
+    // Every counter the page shows: SQLite aggregates it, the browser only displays it.
+    if (path === '/api/stats') {
+      if (!options.stats) {
+        send(res, 404, 'Not found');
+        return;
+      }
+      try {
+        const stats = options.stats(readStatsQuery(url.searchParams));
+        send(res, 200, JSON.stringify(stats), 'application/json; charset=utf-8');
+      } catch {
+        send(res, 500, 'The stats query failed');
+      }
       return;
     }
 
