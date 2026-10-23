@@ -8,8 +8,6 @@
 services:
   adguard-atlas:
     image: ghcr.io/marska/adguard-atlas:latest
-    # Built from this checkout when the image is not present locally.
-    # Remove this line to always use the published image.
     build: .
     container_name: adguard-atlas
     restart: unless-stopped
@@ -25,32 +23,28 @@ services:
       # ADGUARD_1_NAME: "primary"
       # ADGUARD_1_INSECURE_TLS: "true"     # self-signed https panel
 
-      # A second resolver, if you run one:
-      # ADGUARD_2_URL: "http://192.168.1.3:3000"
-      # ADGUARD_2_USER: "atlas"
-      # ADGUARD_2_PASSWORD_FILE: /run/secrets/adguard_2_password
-
-      # Where the arcs start. Never derived from your public IP.
       HOME_LAT: "52.23"
       HOME_LON: "21.01"
       # HOME_LABEL: "Home"
 
-      # Which layout the page opens in: MAP or STATS. Omit it for STATS.
+      # MAP or STATS; omit for STATS.
       # VIEW: "MAP"
-      # VIEW: "STATS"
 
       # --- the archive ---------------------------------------------------
       ATLAS_DB: "/data/atlas.db"
-      # 0 keeps every query forever; set a number of days to prune old rows.
       # KEEP_DAYS: "0"
-      # Import the whole existing query log on first start (true by default).
       # BACKFILL: "true"
-      # BACKFILL_MAX_PAGES: "0"          # 0 = until AdGuard Home's log ends
+      # BACKFILL_MAX_PAGES: "0"
       # BACKFILL_PAUSE_MS: "250"
 
-      # Live traffic kept in RAM for the arcs only. Counters never use it.
-      LIVE_BUFFER_MINUTES: "5"
+      # --- the editable stylesheet ---------------------------------------
+      # First start copies the built CSS to this path; from then on that file
+      # is what the browser receives, at the same hashed URL, with no-store.
+      # Edit it, refresh, no rebuild. Delete it with the container to re-seed.
+      ATLAS_STYLES: "/data/atlas.css"
+      # ATLAS_STYLES: "off"          # serve only the CSS compiled into the image
 
+      LIVE_BUFFER_MINUTES: "5"
       # POLL_INTERVAL_MS: "2000"
       # PRIVACY_MODE: "true"
       # IGNORE_CLIENTS: "192.168.1.9,nas"
@@ -58,16 +52,12 @@ services:
     secrets:
       - adguard_1_password
 
-    # The only writable path. Create it on the host first and give it to uid 10001:
+    # The only writable path. On the host first:
     #   mkdir -p ./data && sudo chown -R 10001:10001 ./data
     volumes:
       - ./data:/data
-    # To use your own MaxMind GeoLite2-City database instead of the bundled DB-IP one:
-    #   - ./GeoLite2-City.mmdb:/data/GeoLite2-City.mmdb:ro
-    # and add to environment:  GEOIP_DB: /data/GeoLite2-City.mmdb
 
-    # Hardening. The root filesystem stays read-only; /data is the single exception,
-    # because a permanent archive needs somewhere permanent to live.
+    # Hardening. The root filesystem stays read-only; /data is the single exception.
     read_only: true
     cap_drop:
       - ALL
@@ -89,6 +79,4 @@ services:
 
 secrets:
   adguard_1_password:
-    # A file containing only the password. Keep it out of version control;
-    # it must be readable by uid 10001 (chmod 644, or chown 10001).
     file: ./secrets/adguard_1_password
