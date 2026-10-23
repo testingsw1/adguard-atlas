@@ -47,6 +47,7 @@ type ReadFile = (path: string) => string;
 
 export const DEFAULT_GEOIP_DB = '/usr/share/geoip/dbip-city-lite.mmdb';
 export const DEFAULT_DB_PATH = '/data/atlas.db';
+export const DEFAULT_CSS_PATH = '/data/custom.css';
 
 function bool(env: Env, key: string, fallback = false): boolean {
   const raw = env[key]?.trim().toLowerCase();
