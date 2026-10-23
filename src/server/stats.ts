@@ -16,7 +16,7 @@ import {
 const PLACE_LIMIT = 800;
 
 /** How many rows the live feed can show; the browser keeps the newest of them. */
-const FEED_LIMIT = 70;
+const FEED_LIMIT = 300;
 
 /** Long enough for a domain, short enough to keep the LIKE scan bounded. */
 const TEXT_LIMIT = 128;
