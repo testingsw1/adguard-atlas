@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { DEMO_HOME } from '../shared/types';
+import { DEMO_HOME, parseView, type AtlasView } from '../shared/types';
 import type { LogLevel } from './log';
 
 export interface InstanceConfig {
@@ -23,6 +23,8 @@ export interface Config {
   windowMinutes: number;
   /** How much live traffic stays in RAM for the arcs, whatever the range. */
   liveBufferMinutes: number;
+  /** Which layout the page opens in; the brand button switches it per tab. */
+  view: AtlasView;
   privacyMode: boolean;
   ignoreClients: string[];
   ignoreDomains: string[];
@@ -164,6 +166,9 @@ export function loadConfig(
     pollIntervalMs: int(env, 'POLL_INTERVAL_MS', 2000, 250, 600_000),
     windowMinutes: int(env, 'WINDOW_MINUTES', 15, 1, 240),
     liveBufferMinutes: int(env, 'LIVE_BUFFER_MINUTES', 5, 1, 120),
+    // No VIEW means the dashboard: it is the useful view on a phone and on a
+    // wall display that is not meant to run an animation.
+    view: parseView(env.VIEW),
     privacyMode: bool(env, 'PRIVACY_MODE'),
     ignoreClients: list(env, 'IGNORE_CLIENTS'),
     ignoreDomains: list(env, 'IGNORE_DOMAINS').map((d) => d.replace(/^\\?\./, '').replace(/\.$/, '')),
