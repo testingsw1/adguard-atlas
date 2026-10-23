@@ -17,13 +17,27 @@ export const CLASS_HINT: Record<QueryClass, string> = {
 
 const number = new Intl.NumberFormat('en-US');
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
-/** `dd.mm` and `hh:mm` are formatted separately, so the separator is a dot and not a locale's slash. */
+
+/**
+ * The date and the clock are formatted separately so they can be separate
+ * elements in the feed: `dd.mm` next to a clock that carries its own colour.
+ * `en-GB` gives day/month, and the separator is rewritten so no locale's slash
+ * leaks into the layout. `h23` rather than `hour12: false`, because some ICU
+ * builds render midnight as 24:05 under the h24 cycle.
+ */
 const dayMonth = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit' });
 const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 export const fmt = (n: number) => number.format(n);
 export const fmtCompact = (n: number) => (n < 10_000 ? number.format(n) : compact.format(n));
-export const fmtTime = (t: number) => `${dayMonth.format(t).replace('/', '.')} ${clock.format(t)}`;
+
+/** `dd.mm` */
+export const fmtDate = (t: number) => dayMonth.format(t).replace('/', '.');
+/** `hh:mm`, 24-hour */
+export const fmtClock = (t: number) => clock.format(t);
+/** `dd.mm hh:mm`, for titles and aria labels only. */
+export const fmtTime = (t: number) => `${fmtDate(t)} ${fmtClock(t)}`;
+
 export const fmtShare = (share: number) =>
   share === 0 ? '0%' : share < 0.1 ? `${(share * 100).toFixed(1)}%` : `${Math.round(share * 100)}%`;
 
