@@ -32,14 +32,10 @@ async function main(): Promise<void> {
 
   // The built stylesheet, mirrored into the volume so it can be edited live.
   const styles = config.stylesPath ? installStyles({ staticDir, file: config.stylesPath }) : null;
-
   const stylesHealth = () =>
-    styles
-      ? { url: styles.url, file: styles.file, found: existsSync(styles.file) }
-      : null;
+    styles ? { url: styles.url, file: styles.file, found: existsSync(styles.file) } : null;
 
   if (config.demo) {
-    // F27: same front end, generator in the browser, no AdGuard Home and no disk.
     const clientConfig: ClientConfig = {
       mode: 'demo',
       home: config.home,
@@ -71,7 +67,12 @@ async function main(): Promise<void> {
   // so refuse to start rather than quietly forget every query.
   let db: Db;
   try {
-    db = new Db({ path: config.dbPath });
+    db = new Db({
+      path: config.dbPath,
+      cacheMb: config.cacheMb,
+      maxRows: config.maxRows,
+      onTrim: (removed) => log.info(`row cap: removed the ${removed} oldest queries (MAX ${config.maxRows})`),
+    });
   } catch (err) {
     process.stderr.write(
       `Cannot open the database at ${config.dbPath}: ${(err as Error).message}\n` +
@@ -79,7 +80,16 @@ async function main(): Promise<void> {
     );
     process.exit(2);
   }
-  log.info(`database: ${config.dbPath} (${db.count()} queries stored)`);
+  log.info(
+    `database: ${config.dbPath} (${db.count()} queries stored, ${config.cacheMb} MB cache, ` +
+      `${config.maxRows > 0 ? `cap ${config.maxRows} rows` : 'no row cap'})`,
+  );
+
+  // Apply the cap once at startup, in case the limit was lowered since last run.
+  if (config.maxRows > 0) {
+    const removed = db.trimTo(config.maxRows);
+    if (removed > 0) log.info(`row cap: removed ${removed} queries older than the newest ${config.maxRows}`);
+  }
 
   const clientConfig: ClientConfig = {
     mode: 'live',
@@ -102,7 +112,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // RAM holds only what the arcs need; everything countable lives on disk.
   const live = new EventWindow(config.liveBufferMinutes * 60_000);
   const pipeline = new Pipeline({
     geo,
@@ -132,7 +141,13 @@ async function main(): Promise<void> {
       geoip: geo !== undefined,
       view: config.view,
       styles: stylesHealth(),
-      db: { path: config.dbPath, queries: db.count(), bytes: db.bytes() },
+      db: {
+        path: config.dbPath,
+        queries: db.count(),
+        bytes: db.bytes(),
+        maxRows: config.maxRows,
+        cacheMb: config.cacheMb,
+      },
       instances: pollers.map((p) => ({ name: p.currentStatus.name, state: p.currentStatus.state })),
     }),
   });
@@ -155,7 +170,6 @@ async function main(): Promise<void> {
         } catch (err) {
           log.error(`cannot write to ${config.dbPath}: ${(err as Error).message}`);
         }
-        // A page that overlaps the last one is not "news" for the animation.
         if (fresh.length === 0) return;
 
         live.push(fresh);
@@ -201,8 +215,6 @@ async function main(): Promise<void> {
     },
   );
   for (const p of pollers) p.start();
-
-  // The history walk runs beside the live pollers, slowly, once.
   for (const importer of importers) void importer.run();
 }
 
@@ -217,7 +229,6 @@ function listen(app: ReturnType<typeof createAppServer>, port: number, what: str
   });
   app.server.listen(port, () => log.info(`AdGuard Atlas ${APP_VERSION} listening on :${port} — ${what}`));
 
-  // Node is PID 1 in the container, so nothing handles signals for it.
   let stopping = false;
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.on(signal, () => {
