@@ -23,11 +23,6 @@ const DEMO_CSP = [
 const escapeAttribute = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/**
- * `npm run build:demo` (F27): bakes the demo configuration into index.html, adds
- * the policy as a meta tag so it holds on any static host, and writes a `_headers`
- * file so Cloudflare Pages sends it as a real header too.
- */
 function staticDemo(): Plugin {
   return {
     name: 'atlas-static-demo',
@@ -83,6 +78,11 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 0,
       modulePreload: { polyfill: false },
       chunkSizeWarningLimit: 2000,
+      // ATLAS_STYLES serves this file from /data so it can be edited without a
+      // rebuild. Minified CSS is a single unreadable line, so keep it formatted,
+      // and keep it in one file so there is exactly one copy to edit.
+      cssMinify: false,
+      cssCodeSplit: false,
     },
   };
 });
