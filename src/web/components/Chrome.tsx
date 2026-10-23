@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { QUERY_CLASSES, RANGE_SHORT, REPO_URL, type ClientConfig } from '../../shared/types';
+import { QUERY_CLASSES, RANGE_SHORT, REPO_URL, type AtlasView, type ClientConfig } from '../../shared/types';
 import type { AtlasStore, Snapshot } from '../store';
 import { CLASS_HINT, CLASS_LABEL, ClassGlyph, fmtCompact, fmtShare, Icon, Logo } from './bits';
 
@@ -97,16 +97,26 @@ export function TopBar({
   store,
   snap,
   config,
+  view,
+  onToggleView,
   onKiosk,
-}: ChromeProps & { onKiosk: () => void }) {
+}: ChromeProps & { view: AtlasView; onToggleView: () => void; onKiosk: () => void }) {
+  const other: AtlasView = view === 'map' ? 'stats' : 'map';
   return (
     <header className="topbar">
-      <div className="brand">
+      {/* The brand is the view switch: the word on the right says where you are. */}
+      <button
+        type="button"
+        className="brand"
+        onClick={onToggleView}
+        title={`Switch to the ${other} view (V)`}
+        aria-label={`AdGuard Atlas, ${view} view. Switch to the ${other} view.`}
+      >
         <Logo />
         <span className="brand-name">
-          AdGuard <b>Atlas</b>
+          AdGuardAtlas <b>{view === 'map' ? 'MAP' : 'STATS'}</b>
         </span>
-      </div>
+      </button>
       <StatusChip snap={snap} config={config} />
       {config.mode === 'demo' && (
         <p className="demo-pill">
