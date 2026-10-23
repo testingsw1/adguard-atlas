@@ -30,6 +30,10 @@ export interface Config {
   ignoreDomains: string[];
   geoipDb: string;
   dbPath: string;
+  /** SQLite page cache, MB. Charged against the container memory limit. */
+  cacheMb: number;
+  /** Hard cap on stored rows; 0 means no cap. */
+  maxRows: number;
   /** Where the editable copy of the built stylesheet lives; null disables the override. */
   stylesPath: string | null;
   /** 0 keeps every query forever. */
@@ -84,10 +88,6 @@ function list(env: Env, key: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * `ATLAS_STYLES` may be a path, or "off" to serve only the stylesheet compiled
- * into the image. Unset means the default path inside the volume.
- */
 function stylesPath(env: Env): string | null {
   const raw = env.ATLAS_STYLES?.trim();
   if (raw === undefined || raw === '') return DEFAULT_STYLES_PATH;
@@ -146,7 +146,6 @@ function instances(env: Env, readFile: ReadFile): InstanceConfig[] {
       insecureTls: bool(env, `${prefix}INSECURE_TLS`),
     });
   }
-  // Display names double as filter keys in the UI, so they have to be unique.
   const seen = new Map<string, number>();
   for (const inst of result) {
     const n = (seen.get(inst.name) ?? 0) + 1;
@@ -180,14 +179,17 @@ export function loadConfig(
     pollIntervalMs: int(env, 'POLL_INTERVAL_MS', 2000, 250, 600_000),
     windowMinutes: int(env, 'WINDOW_MINUTES', 15, 1, 240),
     liveBufferMinutes: int(env, 'LIVE_BUFFER_MINUTES', 5, 1, 120),
-    // No VIEW means the dashboard: it is the useful view on a phone and on a
-    // wall display that is not meant to run an animation.
     view: parseView(env.VIEW),
     privacyMode: bool(env, 'PRIVACY_MODE'),
     ignoreClients: list(env, 'IGNORE_CLIENTS'),
     ignoreDomains: list(env, 'IGNORE_DOMAINS').map((d) => d.replace(/^\\?\./, '').replace(/\.$/, '')),
     geoipDb: env.GEOIP_DB?.trim() || DEFAULT_GEOIP_DB,
     dbPath: env.ATLAS_DB?.trim() || DEFAULT_DB_PATH,
+    // 64 MB: small next to a 512 MB container, large enough that the covering
+    // indexes for a million rows stay warm.
+    cacheMb: int(env, 'ATLAS_CACHE_MB', 64, 8, 256),
+    // About 60–100 days at 10–16k queries/day.
+    maxRows: int(env, 'ATLAS_MAX_ROWS', 1_000_000, 0, 100_000_000),
     stylesPath: stylesPath(env),
     keepDays: int(env, 'KEEP_DAYS', 0, 0, 3650),
     backfill: bool(env, 'BACKFILL', true),
