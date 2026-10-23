@@ -36,6 +36,7 @@ async function main(): Promise<void> {
       windowMinutes: config.windowMinutes,
       liveBufferMinutes: config.windowMinutes,
       archive: false,
+      view: config.view,
       privacyForced: config.privacyMode,
       version: APP_VERSION,
     };
@@ -68,6 +69,7 @@ async function main(): Promise<void> {
     windowMinutes: config.windowMinutes,
     liveBufferMinutes: config.liveBufferMinutes,
     archive: true,
+    view: config.view,
     privacyForced: config.privacyMode,
     version: APP_VERSION,
   };
@@ -109,6 +111,7 @@ async function main(): Promise<void> {
       version: APP_VERSION,
       uptimeSeconds: uptime(startedAt),
       geoip: geo !== undefined,
+      view: config.view,
       db: { path: config.dbPath, queries: db.count(), bytes: db.bytes() },
       instances: pollers.map((p) => ({ name: p.currentStatus.name, state: p.currentStatus.state })),
     }),
@@ -171,7 +174,7 @@ async function main(): Promise<void> {
   listen(
     app,
     config.port,
-    `polling ${pollers.length} AdGuard Home instance(s) every ${config.pollIntervalMs} ms`,
+    `polling ${pollers.length} AdGuard Home instance(s) every ${config.pollIntervalMs} ms, opening on ${config.view}`,
     () => {
       for (const p of pollers) p.stop();
       db.close();
