@@ -315,9 +315,25 @@ export class AtlasStore {
     this.setFilters({ range: parseRange(range) });
   }
 
+  /**
+   * The class rows in the counters: clicking one hides it (F16).
+   */
   toggleClass(cls: QueryClass): void {
     const classes = { ...this.snapshot.filters.classes };
     classes[cls] = !classes[cls];
+    this.setFilters({ classes });
+  }
+
+  /**
+   * The legend: clicking a class shows only that one. Clicking it again, when it
+   * is already the only one visible, brings the other three back. Both call sites
+   * write the same `filters.classes`, so the legend and the class rows can never
+   * disagree about what is hidden.
+   */
+  soloClass(cls: QueryClass): void {
+    const classes = { ...this.snapshot.filters.classes };
+    const alone = QUERY_CLASSES.every((c) => classes[c] === (c === cls));
+    for (const c of QUERY_CLASSES) classes[c] = alone ? true : c === cls;
     this.setFilters({ classes });
   }
 
