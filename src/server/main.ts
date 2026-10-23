@@ -2,11 +2,14 @@ import { resolve } from 'node:path';
 import { APP_VERSION, type ClientConfig, type ServerStatus } from '../shared/types';
 import { AdGuardClient, Poller } from './adguard';
 import { ConfigError, loadConfig, type Config } from './config';
+import { Db } from './db';
 import { MmdbLocator } from './geoip';
 import { createAppServer } from './http';
+import { Importer } from './importer';
 import { log, setLogLevel } from './log';
 import { Pipeline } from './pipeline';
 import { Masker } from './privacy';
+import { collectStats } from './stats';
 import { EventWindow } from './window';
 
 async function main(): Promise<void> {
@@ -23,17 +26,19 @@ async function main(): Promise<void> {
   setLogLevel(config.logLevel);
 
   const staticDir = process.env.STATIC_DIR || resolve(__dirname, '../web');
-  const clientConfig: ClientConfig = {
-    mode: config.demo ? 'demo' : 'live',
-    home: config.home,
-    windowMinutes: config.windowMinutes,
-    privacyForced: config.privacyMode,
-    version: APP_VERSION,
-  };
   const startedAt = Date.now();
 
   if (config.demo) {
-    // F27: same front end, generator in the browser, no AdGuard Home contacted.
+    // F27: same front end, generator in the browser, no AdGuard Home and no disk.
+    const clientConfig: ClientConfig = {
+      mode: 'demo',
+      home: config.home,
+      windowMinutes: config.windowMinutes,
+      liveBufferMinutes: config.windowMinutes,
+      archive: false,
+      privacyForced: config.privacyMode,
+      version: APP_VERSION,
+    };
     const app = createAppServer({
       staticDir,
       clientConfig,
@@ -43,17 +48,42 @@ async function main(): Promise<void> {
     return;
   }
 
+  // The archive. Without a writable mount the whole point of this build is lost,
+  // so refuse to start rather than quietly forget every query.
+  let db: Db;
+  try {
+    db = new Db({ path: config.dbPath });
+  } catch (err) {
+    process.stderr.write(
+      `Cannot open the database at ${config.dbPath}: ${(err as Error).message}\n` +
+        'Mount a writable volume at /data (owned by uid 10001) or set ATLAS_DB to a writable path.\n',
+    );
+    process.exit(2);
+  }
+  log.info(`database: ${config.dbPath} (${db.count()} queries stored)`);
+
+  const clientConfig: ClientConfig = {
+    mode: 'live',
+    home: config.home,
+    windowMinutes: config.windowMinutes,
+    liveBufferMinutes: config.liveBufferMinutes,
+    archive: true,
+    privacyForced: config.privacyMode,
+    version: APP_VERSION,
+  };
+
   let geo: MmdbLocator | undefined;
   try {
     geo = await MmdbLocator.open(config.geoipDb);
     log.info(`GeoIP database: ${config.geoipDb} (${geo.databaseType})`);
   } catch (err) {
     log.error(
-      `Cannot open the GeoIP database at ${config.geoipDb} (${(err as NodeJS.ErrnoException).code ?? 'invalid file'}): queries will be counted but nothing can be drawn on the map`,
+      `Cannot open the GeoIP database at ${config.geoipDb} (${(err as NodeJS.ErrnoException).code ?? 'invalid file'}): queries will be stored and counted but nothing can be drawn on the map`,
     );
   }
 
-  const window = new EventWindow(config.windowMinutes * 60_000);
+  // RAM holds only what the arcs need; everything countable lives on disk.
+  const live = new EventWindow(config.liveBufferMinutes * 60_000);
   const pipeline = new Pipeline({
     geo,
     masker: config.privacyMode ? new Masker() : undefined,
@@ -65,33 +95,50 @@ async function main(): Promise<void> {
   const status = (): ServerStatus => ({
     instances: pollers.map((p) => p.currentStatus),
     geoip: geo !== undefined,
+    archived: db.count(),
   });
 
   const app = createAppServer({
     staticDir,
     clientConfig,
-    stream: { snapshot: () => ({ now: Date.now(), events: window.snapshot(), status: status() }) },
+    stream: { snapshot: () => ({ now: Date.now(), events: live.snapshot(), status: status() }) },
+    stats: (query) => collectStats(db.handle, query),
     health: () => ({
       status: 'ok',
       mode: 'live',
       version: APP_VERSION,
       uptimeSeconds: uptime(startedAt),
       geoip: geo !== undefined,
+      db: { path: config.dbPath, queries: db.count(), bytes: db.bytes() },
       instances: pollers.map((p) => ({ name: p.currentStatus.name, state: p.currentStatus.state })),
     }),
   });
 
+  const importers: Importer[] = [];
+
   for (const instance of config.instances) {
-    const poller = new Poller(new AdGuardClient(instance), {
+    const client = new AdGuardClient(instance);
+    const poller = new Poller(client, {
       name: instance.name,
       intervalMs: config.pollIntervalMs,
       onEntries: (entries) => {
         const events = pipeline.process(instance.name, entries);
         if (events.length === 0) return;
-        window.push(events);
-        app.broadcast('events', events);
+
+        // Disk first, so a restart loses nothing and duplicates are dropped here.
+        let fresh = events;
+        try {
+          fresh = db.insertBatch(events);
+        } catch (err) {
+          log.error(`cannot write to ${config.dbPath}: ${(err as Error).message}`);
+        }
+        // A page that overlaps the last one is not "news" for the animation.
+        if (fresh.length === 0) return;
+
+        live.push(fresh);
+        app.broadcast('events', fresh);
         if (config.logLevel === 'debug') {
-          for (const e of events) log.debug(`${e.instance} ${e.client} ${e.domain} ${e.cls}`);
+          for (const e of fresh) log.debug(`${e.instance} ${e.client} ${e.domain} ${e.cls}`);
         }
       },
       onStatus: (s) => {
@@ -101,12 +148,39 @@ async function main(): Promise<void> {
       },
     });
     pollers.push(poller);
+    if (config.backfill) {
+      importers.push(
+        new Importer(client, db, (entries) => pipeline.process(instance.name, entries), {
+          name: instance.name,
+          maxPages: config.backfillPages,
+          pauseMs: config.backfillPauseMs,
+        }),
+      );
+    }
   }
 
-  listen(app, config.port, `polling ${pollers.length} AdGuard Home instance(s) every ${config.pollIntervalMs} ms`, () => {
-    for (const p of pollers) p.stop();
-  });
+  if (config.keepDays > 0) {
+    const keepMs = config.keepDays * 86_400_000;
+    const timer = setInterval(() => {
+      const removed = db.prune(Date.now() - keepMs);
+      if (removed > 0) log.info(`retention: removed ${removed} queries older than ${config.keepDays} days`);
+    }, 3_600_000);
+    timer.unref();
+  }
+
+  listen(
+    app,
+    config.port,
+    `polling ${pollers.length} AdGuard Home instance(s) every ${config.pollIntervalMs} ms`,
+    () => {
+      for (const p of pollers) p.stop();
+      db.close();
+    },
+  );
   for (const p of pollers) p.start();
+
+  // The history walk runs beside the live pollers, slowly, once.
+  for (const importer of importers) void importer.run();
 }
 
 function uptime(startedAt: number): number {
