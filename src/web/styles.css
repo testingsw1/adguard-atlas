@@ -1672,7 +1672,7 @@ a:hover {
    5 / 11 / 102 stack on their right edge. */
 .bar-count {
   flex: none;
-  min-width: 25px;
+  min-width: 35px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
