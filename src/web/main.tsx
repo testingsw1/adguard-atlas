@@ -4,6 +4,7 @@ import './styles.css';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { DEFAULT_RANGE, parseRange } from '../shared/types';
 import { App } from './App';
 import { readConfig, readUrl, recall } from './config';
 import { createDemoSource } from './sources/demo';
@@ -13,18 +14,26 @@ import { AtlasStore, type Theme } from './store';
 
 const config = readConfig();
 const url = readUrl();
-const windowMs = config.windowMinutes * 60_000;
+
+// Live: RAM only bridges the gap between a query arriving and the arcs drawing it.
+// Demo: the generator invents the whole window, as before.
+const ramWindowMs = (config.archive ? config.liveBufferMinutes : config.windowMinutes) * 60_000;
 
 const theme: Theme = url.theme ?? (recall('theme') === 'light' ? 'light' : 'dark');
 document.documentElement.dataset.theme = theme;
 
-const store = new AtlasStore(windowMs, {
+const store = new AtlasStore(ramWindowMs, {
   theme,
   privacy: config.privacyForced || url.privacy || recall('privacy') === 'on',
 });
+store.setFilters({ range: url.range ?? parseRange(recall('range') ?? DEFAULT_RANGE) });
+
+// Only an archive answers /api/stats; without one the store derives the view itself.
+if (config.archive) store.enableServerStats();
 
 // F23: the only place that knows where events come from.
-const source: EventSourceAdapter = config.mode === 'demo' ? createDemoSource(windowMs) : createSseSource();
+const source: EventSourceAdapter =
+  config.mode === 'demo' ? createDemoSource(config.windowMinutes * 60_000) : createSseSource();
 
 source.start({
   onSnapshot: (events, status, now) => {
