@@ -30,6 +30,8 @@ export interface Config {
   ignoreDomains: string[];
   geoipDb: string;
   dbPath: string;
+  /** A stylesheet served from /data and linked after the built one; edit it without a rebuild. */
+  cssFile: string;
   /** 0 keeps every query forever. */
   keepDays: number;
   backfill: boolean;
