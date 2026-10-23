@@ -3,6 +3,7 @@ import {
   BUCKETS,
   QUERY_CLASSES,
   rangeMs,
+  type AtlasEvent,
   type Detail,
   type Place,
   type QueryClass,
@@ -13,6 +14,12 @@ import {
 
 /** Places are drawn from memory on the canvas; this is the ceiling per frame. */
 const PLACE_LIMIT = 800;
+
+/** How many rows the live feed can show; the browser keeps the newest of them. */
+const FEED_LIMIT = 70;
+
+/** Long enough for a domain, short enough to keep the LIKE scan bounded. */
+const TEXT_LIMIT = 128;
 
 interface Clause {
   sql: string[];
@@ -39,12 +46,17 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (m) => `\\${m}`);
 }
 
-/** The filters that apply to every counter: range, device, instance, free text. */
+/**
+ * The filters that apply to every counter: range, device, instance, free text.
+ * The text search is deliberately here and not in the browser: it runs over the
+ * whole archive, so a domain that resolved last week is still found today.
+ */
 function baseClause(q: StatsQuery, since: number, until: number): Clause {
   let clause: Clause = { sql: ['ts >= ?', 'ts <= ?'], args: [since, until] };
   if (q.device) clause = add(clause, 'client = ?', q.device);
   if (q.instance) clause = add(clause, 'instance = ?', q.instance);
-  for (const word of (q.text ?? '').toLowerCase().split(/\s+/).filter(Boolean)) {
+  const text = (q.text ?? '').slice(0, TEXT_LIMIT).toLowerCase();
+  for (const word of text.split(/\s+/).filter(Boolean)) {
     const pattern = `%${escapeLike(word)}%`;
     clause = add(
       clause,
@@ -72,9 +84,26 @@ function toRow(cc: string | undefined) {
   });
 }
 
+interface FeedRow {
+  id: number;
+  ts: number;
+  sub: number;
+  instance: string;
+  client: string;
+  domain: string;
+  qtype: string;
+  cls: QueryClass;
+  dest_lat: number | null;
+  dest_lon: number | null;
+  dest_city: string | null;
+  dest_cc: string | null;
+  dest_country: string | null;
+}
+
 /**
  * Every number the counters show, aggregated by SQLite straight from the disk
- * indexes. Nothing here loads a query row into memory: covered columns only.
+ * indexes, plus the newest matches for the feed so the free-text filter covers
+ * the whole archive rather than whatever happens to be in RAM.
  */
 export function collectStats(db: DatabaseSync, q: StatsQuery, now = Date.now()): StatsResponse {
   const bounds = oneOf<{ oldest: number | null }>(db, 'SELECT MIN(ts) AS oldest FROM queries', []);
@@ -185,6 +214,39 @@ export function collectStats(db: DatabaseSync, q: StatsQuery, now = Date.now()):
       last: p.last,
     }));
 
+  // --- the feed: newest matches anywhere in the range ---
+
+  const feed: AtlasEvent[] = rowsOf<FeedRow>(
+    db,
+    `SELECT id, ts, sub, instance, client, domain, qtype, cls,
+            dest_lat, dest_lon, dest_city, dest_cc, dest_country
+       FROM queries WHERE ${and(visible)}
+      ORDER BY ts DESC, id DESC LIMIT ?`,
+    [...visible.args, FEED_LIMIT],
+  ).map((r) => {
+    const event: AtlasEvent = {
+      // Prefixed so an archived row can never collide with a live SSE id.
+      id: `q${r.id}`,
+      t: r.ts,
+      sub: r.sub,
+      instance: r.instance,
+      client: r.client,
+      domain: r.domain,
+      qtype: r.qtype,
+      cls: r.cls,
+    };
+    if (r.dest_lat !== null && r.dest_lon !== null) {
+      event.dest = {
+        lat: r.dest_lat,
+        lon: r.dest_lon,
+        city: r.dest_city ?? undefined,
+        country: r.dest_country ?? undefined,
+        cc: r.dest_cc ?? undefined,
+      };
+    }
+    return event;
+  });
+
   // --- the filter dropdowns: never narrowed by their own selection ---
 
   const devices = rowsOf<{ client: string }>(
@@ -241,17 +303,15 @@ export function collectStats(db: DatabaseSync, q: StatsQuery, now = Date.now()):
       title = meta?.city || meta?.country || 'Selected place';
       subtitle = meta?.city ? (meta.country ?? '') : '';
     } else {
-      const rowsForCountry = rowsOf<{ key: string; label: string | null; n: number; blk: number | null }>(
+      cities = rowsOf<{ key: string; label: string | null; n: number; blk: number | null }>(
         db,
         `SELECT dest_key AS key, dest_city AS label, COUNT(*) AS n, SUM(cls = 'blocked') AS blk
            FROM queries WHERE ${and(scope)} AND dest_key IS NOT NULL
           GROUP BY dest_key ORDER BY n DESC LIMIT ?`,
         [...scope.args, 6],
       ).map((r) => toRow(undefined)({ ...r, label: r.label ?? 'Unknown place' }));
-      cities = rowsForCountry;
       title = q.countryName || q.country || 'Selected country';
-      subtitle =
-        cities.length > 0 ? `${cities.length} ${cities.length === 1 ? 'place' : 'places'}` : '';
+      subtitle = cities.length > 0 ? `${cities.length} ${cities.length === 1 ? 'place' : 'places'}` : '';
     }
 
     detail = { title, subtitle, total: detailTotal, domains, devices: devicesHere, cities };
@@ -274,5 +334,6 @@ export function collectStats(db: DatabaseSync, q: StatsQuery, now = Date.now()):
     instances,
     places,
     detail,
+    feed,
   };
 }
