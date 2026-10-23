@@ -297,7 +297,7 @@ function Feed({ store, snap, privacyForced }: PanelProps) {
 
   return (
     <>
-      <div className="side-head">
+      <div className="side-head feed-head">
         <h2 className="eyebrow">
           <span className={snap.paused ? 'live-dot is-paused' : 'live-dot'} />
           Live feed
