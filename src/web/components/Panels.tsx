@@ -409,14 +409,15 @@ export function SidePanel(props: PanelProps) {
   );
 }
 
-/** STATS, left column: filters, then the query counters, then the legend. */
+/** STATS, left column: filters, then the query counters, then the solo keys. */
 export function StatsLeftPanel(props: PanelProps) {
   return (
     <aside className="panel stats col-left" aria-label="Filters and query counters">
       <Filters {...props} />
       <Counters {...props} />
       <section className="block legend-block">
-        <h3 className="eyebrow">Legend</h3>
+        {/* "Show only", because a click here solos a class instead of hiding it. */}
+        <h3 className="eyebrow">Show only</h3>
         <Legend store={props.store} snap={props.snap} />
       </section>
     </aside>
