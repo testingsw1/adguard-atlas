@@ -8,13 +8,9 @@
 #
 # Nothing is installed on the build host: every step runs in a container.
 
-# Node 24 carries `node:sqlite` without a flag; 22.13+ works too.
 ARG NODE_VERSION=24
 
 # --- dependencies ---------------------------------------------------------------
-# Everything up to the runtime stage produces platform-independent output (bundled
-# JavaScript, a data file), so it runs once on the build machine's own architecture
-# and a multi-platform build only emulates the runtime stage.
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS deps
 WORKDIR /app
 ENV npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false
@@ -46,10 +42,6 @@ COPY --from=demo-build /app/dist/demo /
 
 # --- GeoIP database (D3) ------------------------------------------------------------
 # DB-IP City Lite (CC BY 4.0), downloaded at build time and never stored in git.
-# The file is published monthly; the current month is tried first, then the previous
-# one. GEOIP_URL overrides the location. GEOIP=skip builds an image without a
-# database (for offline builds): such an image only locates anything when a
-# database is mounted and GEOIP_DB points at it.
 FROM --platform=$BUILDPLATFORM alpine:3.24 AS geoip
 ARG GEOIP=download
 ARG GEOIP_URL=""
@@ -80,25 +72,28 @@ RUN set -eu; \
 
 # --- runtime ------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS runtime
-# Only node itself is needed: no package manager, no build toolchain to keep patched.
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
            /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* /root/.npm /tmp/*
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080 \
     GEOIP_DB=/usr/share/geoip/dbip-city-lite.mmdb \
-    ATLAS_DB=/data/atlas.db
+    ATLAS_DB=/data/atlas.db \
+    ATLAS_STYLES=/data/atlas.css
 COPY --from=build /app/dist/server ./dist/server
 COPY --from=build /app/dist/web ./dist/web
 COPY --from=geoip /geoip /usr/share/geoip
 COPY LICENSE NOTICE.md ./
 
-# The one writable path in the container: the archive and its WAL live here.
+# The one writable path: the archive, and the editable copy of the built
+# stylesheet that is seeded from ./dist/web on first start. The mkdir/chown must
+# stay BEFORE VOLUME — anything done to a volume path after that instruction is
+# discarded at runtime.
 RUN mkdir -p /data && chown 10001:10001 /data
 VOLUME ["/data"]
 
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>r.json()).then(h=>{if(!h.db||h.db.queries<0)process.exit(1);process.exit(0)},()=>process.exit(1))"]
 CMD ["node", "dist/server/main.cjs"]
