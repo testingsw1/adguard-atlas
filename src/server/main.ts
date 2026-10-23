@@ -12,6 +12,7 @@ import { Pipeline } from './pipeline';
 import { Masker } from './privacy';
 import { collectStats } from './stats';
 import { EventWindow } from './window';
+import { installStyles } from './styles';
 
 async function main(): Promise<void> {
   let config: Config;
@@ -29,6 +30,14 @@ async function main(): Promise<void> {
   const staticDir = process.env.STATIC_DIR || resolve(__dirname, '../web');
   const startedAt = Date.now();
 
+  // The built stylesheet, mirrored into the volume so it can be edited live.
+  const styles = config.stylesPath ? installStyles({ staticDir, file: config.stylesPath }) : null;
+
+  const stylesHealth = () =>
+    styles
+      ? { url: styles.url, file: styles.file, found: existsSync(styles.file) }
+      : null;
+
   if (config.demo) {
     // F27: same front end, generator in the browser, no AdGuard Home and no disk.
     const clientConfig: ClientConfig = {
@@ -44,15 +53,14 @@ async function main(): Promise<void> {
     const app = createAppServer({
       staticDir,
       clientConfig,
-      // The demo has no archive, but the stylesheet override still applies.
-      customCss: config.cssFile,
+      styles: styles ?? undefined,
       health: () => ({
         status: 'ok',
         mode: 'demo',
         version: APP_VERSION,
         uptimeSeconds: uptime(startedAt),
         view: config.view,
-        customCss: { path: config.cssFile, found: existsSync(config.cssFile) },
+        styles: stylesHealth(),
       }),
     });
     listen(app, config.port, 'demo mode: synthetic traffic generated in the browser, no AdGuard Home is contacted');
@@ -115,8 +123,7 @@ async function main(): Promise<void> {
     clientConfig,
     stream: { snapshot: () => ({ now: Date.now(), events: live.snapshot(), status: status() }) },
     stats: (query) => collectStats(db.handle, query),
-    // Read from disk on every request, so an edit needs only a page refresh.
-    customCss: config.cssFile,
+    styles: styles ?? undefined,
     health: () => ({
       status: 'ok',
       mode: 'live',
@@ -124,7 +131,7 @@ async function main(): Promise<void> {
       uptimeSeconds: uptime(startedAt),
       geoip: geo !== undefined,
       view: config.view,
-      customCss: { path: config.cssFile, found: existsSync(config.cssFile) },
+      styles: stylesHealth(),
       db: { path: config.dbPath, queries: db.count(), bytes: db.bytes() },
       instances: pollers.map((p) => ({ name: p.currentStatus.name, state: p.currentStatus.state })),
     }),
