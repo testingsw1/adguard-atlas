@@ -69,7 +69,7 @@ export interface Snapshot {
   ready: boolean;
 }
 
-export const FEED_SIZE = 70;
+export const FEED_SIZE = 300;
 const MAX_EVENTS = 40_000;
 
 /**
