@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { APP_VERSION, type ClientConfig, type ServerStatus } from '../shared/types';
 import { AdGuardClient, Poller } from './adguard';
@@ -43,7 +44,16 @@ async function main(): Promise<void> {
     const app = createAppServer({
       staticDir,
       clientConfig,
-      health: () => ({ status: 'ok', mode: 'demo', version: APP_VERSION, uptimeSeconds: uptime(startedAt) }),
+      // The demo has no archive, but the stylesheet override still applies.
+      customCss: config.cssFile,
+      health: () => ({
+        status: 'ok',
+        mode: 'demo',
+        version: APP_VERSION,
+        uptimeSeconds: uptime(startedAt),
+        view: config.view,
+        customCss: { path: config.cssFile, found: existsSync(config.cssFile) },
+      }),
     });
     listen(app, config.port, 'demo mode: synthetic traffic generated in the browser, no AdGuard Home is contacted');
     return;
@@ -105,6 +115,8 @@ async function main(): Promise<void> {
     clientConfig,
     stream: { snapshot: () => ({ now: Date.now(), events: live.snapshot(), status: status() }) },
     stats: (query) => collectStats(db.handle, query),
+    // Read from disk on every request, so an edit needs only a page refresh.
+    customCss: config.cssFile,
     health: () => ({
       status: 'ok',
       mode: 'live',
@@ -112,6 +124,7 @@ async function main(): Promise<void> {
       uptimeSeconds: uptime(startedAt),
       geoip: geo !== undefined,
       view: config.view,
+      customCss: { path: config.cssFile, found: existsSync(config.cssFile) },
       db: { path: config.dbPath, queries: db.count(), bytes: db.bytes() },
       instances: pollers.map((p) => ({ name: p.currentStatus.name, state: p.currentStatus.state })),
     }),
