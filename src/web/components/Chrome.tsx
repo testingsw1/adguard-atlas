@@ -196,8 +196,13 @@ function AllowedGlyph() {
 }
 
 /**
- * With a store, every entry toggles its class (F16), in step with the class rows in
- * the counters. Without one it is a caption, as in kiosk mode (F18).
+ * The legend is not the same control as the class rows, on purpose:
+ *
+ *  - here a click *soloes* that class, so `Allowed` leaves only allowed queries;
+ *  - the rows in the counters still toggle one class off.
+ *
+ * Both write `filters.classes`, so the struck-through entries and the greyed rows
+ * always agree, whichever side was clicked.
  */
 export function Legend({ store, snap }: { store?: AtlasStore; snap?: Snapshot }) {
   return (
@@ -213,13 +218,24 @@ export function Legend({ store, snap }: { store?: AtlasStore; snap?: Snapshot })
           );
         }
         const shown = snap.filters.classes[cls];
+        const alone =
+          shown && QUERY_CLASSES.every((c) => (c === cls ? snap.filters.classes[c] : !snap.filters.classes[c]));
         return (
           <li key={cls}>
             <button
               type="button"
               aria-pressed={shown}
-              onClick={() => store.toggleClass(cls)}
-              title={`${CLASS_HINT[cls]}. Click to ${shown ? 'hide' : 'show'}.`}
+              onClick={() => store.soloClass(cls)}
+              title={
+                alone
+                  ? `${CLASS_HINT[cls]}. Click to show every class again.`
+                  : `${CLASS_HINT[cls]}. Click to show only ${CLASS_LABEL[cls]}.`
+              }
+              aria-label={
+                alone
+                  ? `Show every class again`
+                  : `Show only ${CLASS_LABEL[cls]}`
+              }
             >
               {glyph}
               {CLASS_LABEL[cls]}
