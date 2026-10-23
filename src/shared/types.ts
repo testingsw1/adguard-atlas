@@ -59,6 +59,14 @@ export interface SnapshotMessage {
   status: ServerStatus;
 }
 
+/** Which of the two layouts the page opens in. */
+export type AtlasView = 'map' | 'stats';
+
+/** `VIEW` is forgiving: anything that is not "map" means the stats dashboard. */
+export function parseView(raw: string | null | undefined): AtlasView {
+  return (raw ?? '').trim().toLowerCase() === 'map' ? 'map' : 'stats';
+}
+
 /** Injected into index.html by the server (or at build time for the static demo). */
 export interface ClientConfig {
   mode: 'live' | 'demo';
@@ -69,6 +77,8 @@ export interface ClientConfig {
   liveBufferMinutes: number;
   /** False when the archive is unavailable and counters fall back to RAM. */
   archive: boolean;
+  /** The default view, from `VIEW`; the brand button switches it per tab. */
+  view: AtlasView;
   privacyForced: boolean;
   version: string;
 }
@@ -85,6 +95,7 @@ export const STATIC_DEMO_CONFIG: ClientConfig = {
   windowMinutes: DEFAULT_WINDOW_MINUTES,
   liveBufferMinutes: 15,
   archive: false,
+  view: 'stats',
   privacyForced: false,
   version: APP_VERSION,
 };
