@@ -35,19 +35,35 @@ services:
       HOME_LON: "21.01"
       # HOME_LABEL: "Home"
 
+      # --- the archive ---------------------------------------------------
+      ATLAS_DB: "/data/atlas.db"
+      # 0 keeps every query forever; set a number of days to prune old rows.
+      # KEEP_DAYS: "0"
+      # Import the whole existing query log on first start (true by default).
+      # BACKFILL: "true"
+      # BACKFILL_MAX_PAGES: "0"          # 0 = until AdGuard Home's log ends
+      # BACKFILL_PAUSE_MS: "250"
+
+      # Live traffic kept in RAM for the arcs only. Counters never use it.
+      LIVE_BUFFER_MINUTES: "5"
+
       # POLL_INTERVAL_MS: "2000"
-      # WINDOW_MINUTES: "15"
       # PRIVACY_MODE: "true"
       # IGNORE_CLIENTS: "192.168.1.9,nas"
       # IGNORE_DOMAINS: "lan,example.org"
     secrets:
       - adguard_1_password
+
+    # The only writable path. Create it on the host first and give it to uid 10001:
+    #   mkdir -p ./data && sudo chown -R 10001:10001 ./data
+    volumes:
+      - ./data:/data
     # To use your own MaxMind GeoLite2-City database instead of the bundled DB-IP one:
-    # volumes:
     #   - ./GeoLite2-City.mmdb:/data/GeoLite2-City.mmdb:ro
     # and add to environment:  GEOIP_DB: /data/GeoLite2-City.mmdb
 
-    # Hardening. The container writes nothing, so it needs no volume and no tmpfs.
+    # Hardening. The root filesystem stays read-only; /data is the single exception,
+    # because a permanent archive needs somewhere permanent to live.
     read_only: true
     cap_drop:
       - ALL
@@ -55,16 +71,16 @@ services:
       - no-new-privileges:true
     user: "10001:10001"
     pids_limit: 128
-    mem_limit: 384m
+    mem_limit: 512m
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:8080/healthz').then(r=>r.json()).then(h=>{if(!h.db||h.db.queries<0)process.exit(1);process.exit(0)},()=>process.exit(1))"
       interval: 30s
       timeout: 5s
-      start_period: 15s
+      start_period: 20s
       retries: 3
 
 secrets:
