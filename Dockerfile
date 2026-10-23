@@ -8,7 +8,8 @@
 #
 # Nothing is installed on the build host: every step runs in a container.
 
-ARG NODE_VERSION=22
+# Node 24 carries `node:sqlite` without a flag; 22.13+ works too.
+ARG NODE_VERSION=24
 
 # --- dependencies ---------------------------------------------------------------
 # Everything up to the runtime stage produces platform-independent output (bundled
@@ -79,17 +80,23 @@ RUN set -eu; \
 
 # --- runtime ------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS runtime
-# The image needs node and nothing else: no package manager, no shell tooling to keep patched.
+# Only node itself is needed: no package manager, no build toolchain to keep patched.
 RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
            /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* /root/.npm /tmp/*
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080 \
-    GEOIP_DB=/usr/share/geoip/dbip-city-lite.mmdb
+    GEOIP_DB=/usr/share/geoip/dbip-city-lite.mmdb \
+    ATLAS_DB=/data/atlas.db
 COPY --from=build /app/dist/server ./dist/server
 COPY --from=build /app/dist/web ./dist/web
 COPY --from=geoip /geoip /usr/share/geoip
 COPY LICENSE NOTICE.md ./
+
+# The one writable path in the container: the archive and its WAL live here.
+RUN mkdir -p /data && chown 10001:10001 /data
+VOLUME ["/data"]
+
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
