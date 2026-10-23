@@ -80,6 +80,7 @@ function Counters({ store, snap }: PanelProps) {
         <ul className="classes">
           {QUERY_CLASSES.map((cls: QueryClass) => (
             <li key={cls}>
+              {/* The rows hide a class; only the legend solos one. */}
               <button
                 type="button"
                 className={`class class-${cls}`}
@@ -297,6 +298,12 @@ function Feed({ store, snap, privacyForced }: PanelProps) {
 
   return (
     <>
+      {/*
+        `feed-head` exists only so the STATS layout can hide this header in CSS
+        (.app[data-view='stats'] .col-mid .feed-head). The dot and the label are
+        visual: collection, ordering and the paused state do not depend on them,
+        and the MAP view still shows the header.
+      */}
       <div className="side-head feed-head">
         <h2 className="eyebrow">
           <span className={snap.paused ? 'live-dot is-paused' : 'live-dot'} />
