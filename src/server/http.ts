@@ -66,8 +66,22 @@ interface Asset {
 
 export const CONFIG_PLACEHOLDER = '__ATLAS_CONFIG__';
 
+/** Stable, unhashed URL for the stylesheet a user keeps in the volume. */
+export const CUSTOM_CSS_PATH = '/custom.css';
+const CUSTOM_CSS_LINK = '<link rel="stylesheet" href="./custom.css">';
+
 export function escapeAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Our link goes immediately before `</head>`, which puts it after the hashed
+ * bundle: at equal specificity the later file wins, so an override in
+ * /data/custom.css takes effect without touching the built stylesheet.
+ */
+function injectCustomCss(html: string): string {
+  if (html.includes('custom.css')) return html;
+  return html.replace(/<\/head>/i, `  ${CUSTOM_CSS_LINK}\n</head>`);
 }
 
 /** The bundle is a few megabytes: read it once, serve it from memory. */
@@ -84,10 +98,10 @@ function loadAssets(dir: string, config: ClientConfig): Map<string, Asset> {
       const ext = extname(name).toLowerCase();
       let body = readFileSync(full);
       if (relPath === 'index.html') {
-        body = Buffer.from(
-          body.toString('utf8').replace(CONFIG_PLACEHOLDER, escapeAttribute(JSON.stringify(config))),
-          'utf8',
-        );
+        const html = body
+          .toString('utf8')
+          .replace(CONFIG_PLACEHOLDER, escapeAttribute(JSON.stringify(config)));
+        body = Buffer.from(injectCustomCss(html), 'utf8');
       }
       assets.set('/' + relPath, {
         body,
@@ -114,6 +128,8 @@ export interface AppServerOptions {
   stream?: Stream;
   /** Absent without an archive: the counters then come from the browser's RAM. */
   stats?: (query: StatsQuery) => StatsResponse;
+  /** A stylesheet read from disk per request, so it can be edited without a rebuild. */
+  customCss?: string;
   health: () => Record<string, unknown>;
   maxStreamClients?: number;
 }
@@ -142,6 +158,22 @@ function readStatsQuery(params: URLSearchParams): StatsQuery {
   return query;
 }
 
+/**
+ * Read on every request rather than cached: the file is a few kilobytes, and a
+ * plain refresh should pick up an edit. A missing file is not an error — it just
+ * means no overrides — so the browser never logs a 404 for a linked stylesheet.
+ */
+function readCustomCss(file: string | undefined): string {
+  if (!file) return '/* no custom stylesheet configured */\n';
+  try {
+    return readFileSync(file, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return `/* ${file} does not exist: no overrides */\n`;
+    return `/* cannot read ${file} (${code ?? 'error'}) */\n`;
+  }
+}
+
 export function createAppServer(options: AppServerOptions): AppServer {
   const assets = loadAssets(options.staticDir, options.clientConfig);
   const clients = new Set<http.ServerResponse>();
@@ -159,14 +191,9 @@ export function createAppServer(options: AppServerOptions): AppServer {
       return;
     }
     let url: URL;
-    try {
-      url = new URL(req.url ?? '/', 'http://localhost');
-    } catch {
-      send(res, 400, 'Bad request');
-      return;
-    }
     let path: string;
     try {
+      url = new URL(req.url ?? '/', 'http://localhost');
       path = decodeURIComponent(url.pathname);
     } catch {
       send(res, 400, 'Bad request');
@@ -175,6 +202,12 @@ export function createAppServer(options: AppServerOptions): AppServer {
 
     if (path === '/healthz') {
       send(res, 200, JSON.stringify(options.health()), 'application/json; charset=utf-8');
+      return;
+    }
+
+    // The user's stylesheet. `no-store`, because the point is to see edits at once.
+    if (path === CUSTOM_CSS_PATH) {
+      send(res, 200, readCustomCss(options.customCss), 'text/css; charset=utf-8');
       return;
     }
 
