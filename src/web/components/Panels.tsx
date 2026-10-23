@@ -463,7 +463,7 @@ export function SidePanel(props: PanelProps) {
 /** STATS, left column: filters, then the query counters, then the solo keys. */
 export function StatsLeftPanel(props: PanelProps) {
   return (
-    <aside className="panel stats col-left" aria-label="Filters and query counters">
+    <aside className="panel stats stats-left col-left" aria-label="Filters and query counters">
       <Filters {...props} />
       <Counters {...props} />
       <section className="block legend-block">
@@ -487,7 +487,7 @@ export function StatsFeedPanel(props: PanelProps) {
 /** STATS, right column: devices first, because a device is what you act on. */
 export function StatsTopPanel(props: PanelProps) {
   return (
-    <aside className="panel stats col-right" aria-label="Top devices, domains and countries">
+    <aside className="panel stats stats-right col-right" aria-label="Top devices, domains and countries">
       <TopLists {...props} order={STATS_ORDER} />
     </aside>
   );
