@@ -176,6 +176,7 @@ export function loadConfig(
     ignoreDomains: list(env, 'IGNORE_DOMAINS').map((d) => d.replace(/^\\?\./, '').replace(/\.$/, '')),
     geoipDb: env.GEOIP_DB?.trim() || DEFAULT_GEOIP_DB,
     dbPath: env.ATLAS_DB?.trim() || DEFAULT_DB_PATH,
+    cssFile: env.ATLAS_CSS?.trim() || DEFAULT_CSS_PATH,
     keepDays: int(env, 'KEEP_DAYS', 0, 0, 3650),
     backfill: bool(env, 'BACKFILL', true),
     backfillPages: int(env, 'BACKFILL_MAX_PAGES', 0, 0, 1_000_000),
