@@ -1668,3 +1668,19 @@ a:hover {
 .row-time .row-clock {
   color: var(--c-clock);
 }
+/* A fixed number column: the BLOCKED tag in front of it stops shifting, and
+   5 / 11 / 102 stack on their right edge. */
+.bar-count {
+  flex: none;
+  min-width: 25px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The tag gets a column of its own, so rows with and without it still agree. */
+.bar-tag {
+  flex: none;
+  width: 46px;
+  text-align: center;
+}
