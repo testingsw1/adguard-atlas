@@ -1640,3 +1640,31 @@ a:hover {
 .app[data-view='stats'] .col-mid .empty-feed {
   padding-top: 18px;
 }
+/* --- feed stamps: the date and the clock are separate elements ----------------- */
+
+:root {
+  --c-clock: bisque;
+}
+
+:root[data-theme='light'] {
+  /* Bisque (#ffe4c4) is invisible on the cream background; this keeps the same
+     warmth at a weight that reads on light. Delete this rule to have bisque in
+     both themes. */
+  --c-clock: #8a5a2b;
+}
+
+.row-time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.row-time .row-clock {
+  color: var(--c-clock);
+}
