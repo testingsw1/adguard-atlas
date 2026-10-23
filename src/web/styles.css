@@ -1624,3 +1624,18 @@ a:hover {
     max-height: 72dvh;
   }
 }
+/* STATS: the feed is the middle column, so it needs no "Live feed" head. The
+   blinking dot and the label are visual only; collection, ordering and the
+   paused state are untouched. The detail view keeps its own head, which carries
+   the title and the close button, so this must not be a bare .side-head rule. */
+.app[data-view='stats'] .col-mid .feed-head {
+  display: none;
+}
+
+.app[data-view='stats'] .col-mid .feed {
+  padding-top: 16px;
+}
+
+.app[data-view='stats'] .col-mid .empty-feed {
+  padding-top: 18px;
+}
