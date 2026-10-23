@@ -524,7 +524,7 @@ a:hover {
   left: var(--gap);
   width: 392px;
   max-height: calc(100% - 78px - 64px);
-  padding: 2px 18px 14px;
+  padding: 18px 18px 14px;
   overflow-x: hidden;
   overflow-y: auto;
 }
