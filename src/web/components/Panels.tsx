@@ -1,10 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
 import {
+  DEFAULT_RANGE,
   QUERY_CLASSES,
   RANGE_LABEL,
   RANGE_SHORT,
   TIME_RANGES,
-  DEFAULT_RANGE,
   parseRange,
   type AtlasEvent,
   type QueryClass,
@@ -179,8 +179,8 @@ function Filters({ store, snap, privacyForced }: PanelProps) {
           <input
             type="search"
             value={filters.text}
-            placeholder="Filter by domain or device"
-            aria-label="Filter by domain or device"
+            placeholder="Search every stored query"
+            aria-label="Search every stored query by domain or device"
             spellCheck={false}
             autoComplete="off"
             onChange={(e) => store.setFilters({ text: e.target.value })}
@@ -276,7 +276,15 @@ function FeedRow({ e, store, snap, forced }: { e: AtlasEvent; store: AtlasStore;
 }
 
 function Feed({ store, snap, privacyForced }: PanelProps) {
-  const { view } = snap;
+  const { view, filters } = snap;
+  const range = RANGE_SHORT[filters.range];
+  const text = filters.text.trim();
+  let empty: string;
+  if (!snap.ready) empty = 'Connecting…';
+  else if (text) empty = `No stored query in ${range} matches "${text}".`;
+  else if (filtersActive(filters) > 0) empty = `No query in ${range} matches these filters.`;
+  else empty = 'Waiting for the first query…';
+
   return (
     <>
       <div className="side-head">
@@ -287,13 +295,7 @@ function Feed({ store, snap, privacyForced }: PanelProps) {
         <span className="side-note">{snap.paused ? 'map paused · feed still collecting' : 'newest first'}</span>
       </div>
       {view.feed.length === 0 ? (
-        <p className="empty empty-feed">
-          {!snap.ready
-            ? 'Connecting…'
-            : filtersActive(snap.filters) > 0
-              ? 'No query in the window matches these filters.'
-              : 'Waiting for the first query…'}
-        </p>
+        <p className="empty empty-feed">{empty}</p>
       ) : (
         <ol className="feed">
           {view.feed.map((e) => (
@@ -345,7 +347,7 @@ function DetailView({ store, snap, privacyForced }: PanelProps) {
       </div>
       <div className="detail-body">
         {detail.total === 0 ? (
-          <p className="empty">No located query ended here in the selected range.</p>
+          <p className="empty">No located query ended here in {range}.</p>
         ) : (
           <>
             <p className="detail-total">
