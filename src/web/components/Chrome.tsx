@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { QUERY_CLASSES, REPO_URL, type ClientConfig } from '../../shared/types';
+import { QUERY_CLASSES, RANGE_SHORT, REPO_URL, type ClientConfig } from '../../shared/types';
 import type { AtlasStore, Snapshot } from '../store';
 import { CLASS_HINT, CLASS_LABEL, ClassGlyph, fmtCompact, fmtShare, Icon, Logo } from './bits';
 
@@ -80,6 +80,9 @@ function StatusChip({ snap, config }: { snap: Snapshot; config: ClientConfig }) 
           </ul>
           {config.mode === 'live' && snap.status && !snap.status.geoip && (
             <p className="popover-note">No GeoIP database: nothing can be located.</p>
+          )}
+          {config.mode === 'live' && snap.status?.archived !== undefined && (
+            <p className="popover-note">{fmtCompact(snap.status.archived)} queries archived.</p>
           )}
           {config.mode === 'demo' && (
             <p className="popover-note">Generated in this browser tab. Nothing is fetched from anywhere.</p>
@@ -244,7 +247,7 @@ export function Footer({ store, snap, config }: ChromeProps) {
 
 /** F18: what is left on a wall display — a caption, never a control. */
 export function KioskCaption({ snap, config }: { snap: Snapshot; config: ClientConfig }) {
-  const { view } = snap;
+  const { view, filters } = snap;
   return (
     <div className="kiosk-caption" aria-hidden>
       <div className="kiosk-brand">
@@ -256,7 +259,7 @@ export function KioskCaption({ snap, config }: { snap: Snapshot; config: ClientC
       </div>
       <dl className="kiosk-stats">
         <div>
-          <dt>queries · {config.windowMinutes} min</dt>
+          <dt>queries · {RANGE_SHORT[filters.range]}</dt>
           <dd>{fmtCompact(view.total)}</dd>
         </div>
         <div className="kiosk-blocked">
