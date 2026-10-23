@@ -175,6 +175,7 @@ export interface StatsQuery {
   range: TimeRange;
   device?: string | null;
   instance?: string | null;
+  /** Free text: every word must appear in the domain or the device name. */
   text?: string;
   /** Classes the user has switched off: they are excluded from the totals. */
   hidden?: QueryClass[];
@@ -203,4 +204,9 @@ export interface StatsResponse {
   instances: string[];
   places: Place[];
   detail: Detail | null;
+  /**
+   * The newest matching queries in the whole selected range, not just the live
+   * buffer: this is what makes the free-text filter search every stored query.
+   */
+  feed: AtlasEvent[];
 }
