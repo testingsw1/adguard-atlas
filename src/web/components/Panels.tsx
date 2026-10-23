@@ -1,12 +1,20 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { QUERY_CLASSES, type AtlasEvent, type QueryClass } from '../../shared/types';
+import {
+  QUERY_CLASSES,
+  RANGE_LABEL,
+  RANGE_SHORT,
+  TIME_RANGES,
+  DEFAULT_RANGE,
+  parseRange,
+  type AtlasEvent,
+  type QueryClass,
+} from '../../shared/types';
 import { filtersActive, placeKey, type AtlasStore, type Row, type Snapshot } from '../store';
 import { CLASS_HINT, CLASS_LABEL, ClassGlyph, Domain, fmt, fmtCompact, fmtShare, fmtTime, Icon, whereOf } from './bits';
 
 interface PanelProps {
   store: AtlasStore;
   snap: Snapshot;
-  windowMinutes: number;
   privacyForced: boolean;
 }
 
@@ -73,15 +81,16 @@ function TopList({
   );
 }
 
-export function StatsPanel({ store, snap, windowMinutes, privacyForced }: PanelProps) {
+export function StatsPanel({ store, snap, privacyForced }: PanelProps) {
   const { view, filters } = snap;
   const seen = QUERY_CLASSES.reduce((sum, c) => sum + view.byClass[c], 0);
+  const range = RANGE_SHORT[filters.range];
 
   return (
     <aside className="panel stats" aria-label="Counters">
       <div className="hero">
         <div className="metric">
-          <span className="eyebrow">Queries · {windowMinutes} min</span>
+          <span className="eyebrow">Queries · {range}</span>
           <strong className="metric-value">{fmtCompact(view.total)}</strong>
           <span className="metric-sub">{fmt(view.perMinute)} in the last minute</span>
         </div>
@@ -94,7 +103,7 @@ export function StatsPanel({ store, snap, windowMinutes, privacyForced }: PanelP
 
       <Sparkline buckets={view.buckets} />
       <div className="spark-axis" aria-hidden>
-        <span>−{windowMinutes} min</span>
+        <span>{filters.range === 'all' ? 'oldest' : `−${range}`}</span>
         <span>now</span>
       </div>
 
@@ -215,6 +224,21 @@ function Filters({ store, snap, privacyForced }: PanelProps) {
           </button>
         )}
       </div>
+      <div className="filter-row">
+        <label className="field field-select" data-active={filters.range !== DEFAULT_RANGE}>
+          <select
+            value={filters.range}
+            aria-label="Time range"
+            onChange={(e) => store.setRange(parseRange(e.target.value))}
+          >
+            {TIME_RANGES.map((r) => (
+              <option key={r} value={r}>
+                {RANGE_LABEL[r]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
     </div>
   );
 }
@@ -306,6 +330,7 @@ function DetailList({ title, rows, render, onPick }: { title: string; rows: Row[
 function DetailView({ store, snap, privacyForced }: PanelProps) {
   const detail = snap.view.detail!;
   const kind = snap.selection?.kind === 'country' ? 'Country' : 'Place';
+  const range = RANGE_SHORT[snap.filters.range];
   return (
     <>
       <div className="side-head detail-head">
@@ -320,11 +345,11 @@ function DetailView({ store, snap, privacyForced }: PanelProps) {
       </div>
       <div className="detail-body">
         {detail.total === 0 ? (
-          <p className="empty">No located query ended here in the current window.</p>
+          <p className="empty">No located query ended here in the selected range.</p>
         ) : (
           <>
             <p className="detail-total">
-              <strong>{fmt(detail.total)}</strong> {detail.total === 1 ? 'query' : 'queries'} in the window
+              <strong>{fmt(detail.total)}</strong> {detail.total === 1 ? 'query' : 'queries'} in {range}
             </p>
             <DetailList
               title="Domains"
