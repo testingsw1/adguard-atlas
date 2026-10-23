@@ -11,6 +11,7 @@ import {
 } from '../../shared/types';
 import { filtersActive, placeKey, type AtlasStore, type Row, type Snapshot } from '../store';
 import { CLASS_HINT, CLASS_LABEL, ClassGlyph, Domain, fmt, fmtCompact, fmtShare, fmtTime, Icon, whereOf } from './bits';
+import { Legend } from './Chrome';
 
 interface PanelProps {
   store: AtlasStore;
@@ -43,51 +44,14 @@ function Sparkline({ buckets }: { buckets: Snapshot['view']['buckets'] }) {
   );
 }
 
-function TopList({
-  title,
-  rows,
-  render,
-  onPick,
-  hint,
-  mono,
-}: {
-  title: string;
-  rows: Row[];
-  render: (row: Row) => ReactNode;
-  onPick: (row: Row) => void;
-  hint: string;
-  mono?: boolean;
-}) {
-  const max = rows[0]?.count ?? 1;
-  return (
-    <section className="block">
-      <h3 className="eyebrow">{title}</h3>
-      {rows.length === 0 ? (
-        <p className="empty">Nothing yet</p>
-      ) : (
-        <ol className="bars">
-          {rows.map((row) => (
-            <li key={row.key}>
-              <button type="button" className="bar" style={width(row.count / max)} onClick={() => onPick(row)} title={hint}>
-                <span className={mono ? 'bar-label mono' : 'bar-label'}>{render(row)}</span>
-                {row.blocked > 0 && row.blocked === row.count && <span className="bar-tag">blocked</span>}
-                <span className="bar-count">{fmtCompact(row.count)}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}
-
-export function StatsPanel({ store, snap, privacyForced }: PanelProps) {
+/** Queries / Blocked, the histogram, and the per-class rows. Shared by both layouts. */
+function Counters({ store, snap }: PanelProps) {
   const { view, filters } = snap;
   const seen = QUERY_CLASSES.reduce((sum, c) => sum + view.byClass[c], 0);
   const range = RANGE_SHORT[filters.range];
 
   return (
-    <aside className="panel stats" aria-label="Counters">
+    <>
       <div className="hero">
         <div className="metric">
           <span className="eyebrow">Queries · {range}</span>
@@ -132,7 +96,53 @@ export function StatsPanel({ store, snap, privacyForced }: PanelProps) {
           ))}
         </ul>
       </section>
+    </>
+  );
+}
 
+function TopList({
+  title,
+  rows,
+  render,
+  onPick,
+  hint,
+  mono,
+}: {
+  title: string;
+  rows: Row[];
+  render: (row: Row) => ReactNode;
+  onPick: (row: Row) => void;
+  hint: string;
+  mono?: boolean;
+}) {
+  const max = rows[0]?.count ?? 1;
+  return (
+    <section className="block">
+      <h3 className="eyebrow">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="empty">Nothing yet</p>
+      ) : (
+        <ol className="bars">
+          {rows.map((row) => (
+            <li key={row.key}>
+              <button type="button" className="bar" style={width(row.count / max)} onClick={() => onPick(row)} title={hint}>
+                <span className={mono ? 'bar-label mono' : 'bar-label'}>{render(row)}</span>
+                {row.blocked > 0 && row.blocked === row.count && <span className="bar-tag">blocked</span>}
+                <span className="bar-count">{fmtCompact(row.count)}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+/** Countries, domains and devices. Left in the map view, right in the stats view. */
+function TopLists({ store, snap, privacyForced }: PanelProps) {
+  const { view, filters } = snap;
+  return (
+    <>
       <TopList
         title={`Top countries${view.countries > 0 ? ` · ${view.countries}` : ''}`}
         rows={view.topCountries}
@@ -162,7 +172,7 @@ export function StatsPanel({ store, snap, privacyForced }: PanelProps) {
         render={(row) => deviceLabel(store, row.label, snap, privacyForced)}
         onPick={(row) => store.setFilters({ device: filters.device === row.key ? null : row.key })}
       />
-    </aside>
+    </>
   );
 }
 
@@ -202,6 +212,11 @@ function Filters({ store, snap, privacyForced }: PanelProps) {
             ))}
           </select>
         </label>
+        {active > 0 && (
+          <button type="button" className="reset" onClick={() => store.clearFilters()}>
+            Reset
+          </button>
+        )}
         {view.instances.length > 1 && (
           <label className="field field-select" data-active={filters.instance !== null}>
             <select
@@ -217,11 +232,6 @@ function Filters({ store, snap, privacyForced }: PanelProps) {
               ))}
             </select>
           </label>
-        )}
-        {active > 0 && (
-          <button type="button" className="reset" onClick={() => store.clearFilters()}>
-            Reset
-          </button>
         )}
       </div>
       <div className="filter-row">
@@ -378,11 +388,55 @@ function DetailView({ store, snap, privacyForced }: PanelProps) {
   );
 }
 
+// --- the two layouts ----------------------------------------------------------
+
+/** MAP: counters on the left, filters and feed on the right. Unchanged. */
+export function StatsPanel(props: PanelProps) {
+  return (
+    <aside className="panel stats" aria-label="Counters">
+      <Counters {...props} />
+      <TopLists {...props} />
+    </aside>
+  );
+}
+
 export function SidePanel(props: PanelProps) {
   return (
     <aside className="panel side" aria-label={props.snap.view.detail ? 'Details' : 'Live feed'}>
       <Filters {...props} />
       {props.snap.view.detail ? <DetailView {...props} /> : <Feed {...props} />}
+    </aside>
+  );
+}
+
+/** STATS, left column: filters, then the query counters, then the legend. */
+export function StatsLeftPanel(props: PanelProps) {
+  return (
+    <aside className="panel stats col-left" aria-label="Filters and query counters">
+      <Filters {...props} />
+      <Counters {...props} />
+      <section className="block legend-block">
+        <h3 className="eyebrow">Legend</h3>
+        <Legend store={props.store} snap={props.snap} />
+      </section>
+    </aside>
+  );
+}
+
+/** STATS, middle column: the feed, or the click-through when something is selected. */
+export function StatsFeedPanel(props: PanelProps) {
+  return (
+    <aside className="panel side col-mid" aria-label={props.snap.view.detail ? 'Details' : 'Live feed'}>
+      {props.snap.view.detail ? <DetailView {...props} /> : <Feed {...props} />}
+    </aside>
+  );
+}
+
+/** STATS, right column: what used to sit under the counters. */
+export function StatsTopPanel(props: PanelProps) {
+  return (
+    <aside className="panel stats col-right" aria-label="Top countries, domains and devices">
+      <TopLists {...props} />
     </aside>
   );
 }
